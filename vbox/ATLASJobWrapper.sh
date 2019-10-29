@@ -98,15 +98,6 @@ fi
 # set up info to ttys
 
 # tty2: event processing times taken from log
-## obsolete
-##sudo sh -c 'echo -e "\033\0143" > /dev/tty2'
-##sudo sh -c 'echo Event processing information will appear here > /dev/tty2'
-
-##if [ -z "$ATHENA_PROC_NUMBER" ]; then
-##  sudo sh -c 'echo "* * * * * root grep -h \"Event nr\" /home/atlas/RunAtlas/PanDA_Pilot-*/log.EVNTtoHITS | cut -d \" \" -f 1,14- > /dev/tty2" > /etc/cron.d/atlas-events'
-##else
-##  sudo sh -c 'echo "* * * * * root grep -h \"Event nr\" /home/atlas/RunAtlas/PanDA_Pilot-*/athenaMP-workers-EVNTtoHITS-sim/worker_*/AthenaMP.log 2>/dev/null | cut -d \" \" -f 1,2,15- | sort > /dev/tty2" > /etc/cron.d/atlas-events'
-##fi
 
 # Remove this cron which exists inside the vdi
 sudo rm -f /etc/cron.d/atlas-events
