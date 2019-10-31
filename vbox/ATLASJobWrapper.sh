@@ -261,7 +261,7 @@ do
     printf "\033[0;0H"
     printf "**********************************************************************\033[K\n"
     printf "*               \033[1mATLAS (vbox) Event Progress Monitoring\033[0m               *\033[K\n"
-    printf "*                               v2.0.0                               *\033[K\n"
+    printf "*                               v2.0.1                               *\033[K\n"
     printf "*              last display update (VM time):  %8s              *\033[K\n" "$(date "+%T")"
     printf "**********************************************************************\033[K\n"
     printf "Number of events to be processed  :                     %14s\033[K\n" "${n_events}"
@@ -417,13 +417,12 @@ mkdir -p /etc/systemd/system/getty@tty2.service.d
 cat > /etc/systemd/system/getty@tty2.service.d/override.conf << EOF_override_tty2_service
 [Unit]
 Description=ATLAS (vbox) Event Monitoring - Foreground Service
-Requires=atlasmonitoring_bg.service
+BindsTo=atlasmonitoring_bg.service
 
 [Service]
 ExecStart=
 ExecStart=-/sbin/agetty --autologin ${user_on_tty} %I \$TERM
-ExecStopPost=/bin/rm -rf /home/${user_on_tty}/RunAtlas
-RestartSec=1
+RestartSec=2
 EOF_override_tty2_service
 
 
@@ -431,14 +430,15 @@ EOF_override_tty2_service
 cat > /etc/systemd/system/atlasmonitoring_bg.service << EOF_atlasmonitoring_bg_service
 [Unit]
 Description=ATLAS (vbox) Event Monitoring - Background Service
-Requires=getty@tty2.service
-PartOf=getty@tty2.service
+BindsTo=getty@tty2.service
 After=getty@tty2.service
 
 [Service]
 Type=oneshot
+ExecStartPre=/bin/rm -rf /home/${user_on_tty}/RunAtlas
 ExecStart=/usr/local/bin/dump_atlas_logs
 RemainAfterExit=yes
+ExecStopPost=/bin/rm -rf /home/${user_on_tty}/RunAtlas
 EOF_atlasmonitoring_bg_service
 
 
