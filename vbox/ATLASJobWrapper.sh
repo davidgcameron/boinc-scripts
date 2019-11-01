@@ -260,8 +260,8 @@ do
 
     printf "\033[0;0H"
     printf "**********************************************************************\033[K\n"
-    printf "*               \033[1mATLAS (vbox) Event Progress Monitoring\033[0m               *\033[K\n"
-    printf "*                               v2.0.0                               *\033[K\n"
+    printf "*                  \033[1mATLAS Event Progress Monitoring\033[0m                   *\033[K\n"
+    printf "*                               v2.1.0                               *\033[K\n"
     printf "*              last display update (VM time):  %8s              *\033[K\n" "$(date "+%T")"
     printf "**********************************************************************\033[K\n"
     printf "Number of events to be processed  :                     %14s\033[K\n" "${n_events}"
@@ -276,30 +276,29 @@ do
     fi
     
     printf "%s\033[K\n" "----------------------------------------------------------------------"
+    printf "Last finished event(s) from %s worker logfile(s):\033[K\n" "${n_workers}"
 
+    if [[ "${n_workers}" != "N/A" ]]
+    then
+        extra_space="1"; (( n_workers > 9 )) && extra_space="2"
+        terminal_lines="$(( $(tput lines) - 12 ))"
+
+        for worker_index in "${!worker_arr[@]}"
+        do
+            (( worker_index > terminal_lines )) && break
+            
+            # strip timestamps from loglines to avoid confusion
+            message="$(sed -e "/${pattrn2}/ s/^.*\(Event.*\)/\1/ p" -n ${worker_arr[worker_index]} |tail -n 1)"
+            [[ "${message}" == "" ]] && message="N/A"
+            printf "worker %${extra_space}s: %s\033[K\n" "$(( ${worker_index} + 1 ))" "${message}"
+        done
+        
+    fi
+    
     if (( n_events_left == 0 ))
     then
+        printf "%s\033[K\n" "----------------------------------------------------------------------"
         printf "Calculation completed. Preparing HITS file ...\033[K\n"
-    else
-        printf "Last finished event(s) from %s worker logfile(s):\033[K\n" "${n_workers}"
-
-        if [[ "${n_workers}" != "N/A" ]]
-        then
-            extra_space="1"; (( n_workers > 9 )) && extra_space="2"
-            terminal_lines="$(( $(tput lines) - 10 ))"
-
-            for worker_index in "${!worker_arr[@]}"
-            do
-                (( worker_index > terminal_lines )) && break
-            
-                # strip timestamps from loglines to avoid confusion
-                message="$(sed -e "/${pattrn2}/ s/^.*\(Event.*\)/\1/ p" -n ${worker_arr[worker_index]} |tail -n 1)"
-                [[ "${message}" == "" ]] && message="N/A"
-                printf "worker %${extra_space}s: %s\033[K\n" "$(( ${worker_index} + 1 ))" "${message}"
-            done
-        
-        fi
-    
     fi
     
     # clear util end of page
@@ -417,13 +416,12 @@ mkdir -p /etc/systemd/system/getty@tty2.service.d
 cat > /etc/systemd/system/getty@tty2.service.d/override.conf << EOF_override_tty2_service
 [Unit]
 Description=ATLAS (vbox) Event Monitoring - Foreground Service
-Requires=atlasmonitoring_bg.service
+BindsTo=atlasmonitoring_bg.service
 
 [Service]
 ExecStart=
 ExecStart=-/sbin/agetty --autologin ${user_on_tty} %I \$TERM
-ExecStopPost=/bin/rm -rf /home/${user_on_tty}/RunAtlas
-RestartSec=1
+RestartSec=2
 EOF_override_tty2_service
 
 
@@ -431,14 +429,15 @@ EOF_override_tty2_service
 cat > /etc/systemd/system/atlasmonitoring_bg.service << EOF_atlasmonitoring_bg_service
 [Unit]
 Description=ATLAS (vbox) Event Monitoring - Background Service
-Requires=getty@tty2.service
-PartOf=getty@tty2.service
+BindsTo=getty@tty2.service
 After=getty@tty2.service
 
 [Service]
 Type=oneshot
+ExecStartPre=/bin/rm -rf /home/${user_on_tty}/RunAtlas
 ExecStart=/usr/local/bin/dump_atlas_logs
 RemainAfterExit=yes
+ExecStopPost=/bin/rm -rf /home/${user_on_tty}/RunAtlas
 EOF_atlasmonitoring_bg_service
 
 
