@@ -97,17 +97,6 @@ fi
 #######################################
 # set up info to ttys
 
-# tty2: event processing times taken from log
-## obsolete
-##sudo sh -c 'echo -e "\033\0143" > /dev/tty2'
-##sudo sh -c 'echo Event processing information will appear here > /dev/tty2'
-
-##if [ -z "$ATHENA_PROC_NUMBER" ]; then
-##  sudo sh -c 'echo "* * * * * root grep -h \"Event nr\" /home/atlas/RunAtlas/PanDA_Pilot-*/log.EVNTtoHITS | cut -d \" \" -f 1,14- > /dev/tty2" > /etc/cron.d/atlas-events'
-##else
-##  sudo sh -c 'echo "* * * * * root grep -h \"Event nr\" /home/atlas/RunAtlas/PanDA_Pilot-*/athenaMP-workers-EVNTtoHITS-sim/worker_*/AthenaMP.log 2>/dev/null | cut -d \" \" -f 1,2,15- | sort > /dev/tty2" > /etc/cron.d/atlas-events'
-##fi
-
 # Remove this cron which exists inside the vdi
 sudo rm -f /etc/cron.d/atlas-events
 
@@ -122,21 +111,46 @@ cat > /home/atlas/setup_moni_on_tty2 << 'EOF_setup_moni_on_tty2'
 # here a random password is used that is only valid during the VM's lifetime
 # instead of /bin/bash the new user's login shell will be /usr/local/bin/moni_on_tty2
 
-user_on_tty2="montty2"
+user_on_tty="montty2"
+
+if [[ "$(grep "^${user_on_tty}:" /etc/passwd)" == "" ]]
+then
+    useradd -m -k '' -s /usr/local/bin/moni_on_tty2 -U ${user_on_tty} >/dev/null 2>&1
+
+    # setting a (random) password activates the user
+    pw_length_min="17"
+    pw_length_max="31"
+    pw_length="$(( pw_length_min + RANDOM % $(( pw_length_max - pw_length_min )) - 2 ))"
+    
+    echo "${user_on_tty}:$(tr -cd a-zA-Z < /dev/urandom |head -c 1)$(tr -cd a-zA-Z0-9$%/=+~*#_,. < /dev/urandom |head -c ${pw_length})$(tr -cd a-zA-Z0-9 < /dev/urandom |head -c 1)" |chpasswd 2>/dev/null
+fi
 
 cat > /usr/local/bin/moni_on_tty2 << 'EOF_moni_on_tty2'
 #!/bin/bash
 
 # ATLAS monitoring script to be run by user montty2 at console ALT-F2 of VirtualBox VMs
 
+# basic terminal control to keep it alive
+setterm -reset 2>/dev/null
+setterm -powersave off 2>/dev/null
+setterm -blank 0 2>/dev/null
+
 # start with a blank screen
 printf "\033c"
+
+# avoids a blinking cursor
+tput civis
+
 
 # base_location needs to be set to a place where we have read access.
 base_location="/home/montty2/RunAtlas"
 n_events="N/A"
 n_workers="N/A"
 n_finished_events="N/A"
+n_finished_events_last="0"
+n_events_left="-1"
+time_left_reduction="0"
+msg_overdue=""
 
 pattrn1="maxEvents"
 pattrn2="ISFG4SimSvc.*INFO.*Event nr.*took.*New average"
@@ -144,7 +158,6 @@ pattrn2="ISFG4SimSvc.*INFO.*Event nr.*took.*New average"
 
 while true
 do
-
     # collect all information that should be displayed
     # information is spread over a couple of logfiles
     # singlecore and multicore tasks use a different logfile structure
@@ -153,8 +166,8 @@ do
     
     if [[ "${main_log}" != "" ]]
     then
-        # Get total number of events from the file written when setting up the web area
-        n_events_log="$(cat /var/www/html/totalevents.txt)"
+        # Get total number of events from main_log
+        n_events_log="$(sed -e 's/^.*maxEvents[^0-9]*\([0-9]*\)/\1/p' -n ${main_log})"
         
         if [[ "${n_events_log}" != "" ]]
         then
@@ -165,12 +178,12 @@ do
             # In this case event results are also written to main_log
             # but might be that the structure is not yet complete!!
             
-            if (( ${n_workers_guess} == 0 ))
+            if (( n_workers_guess == 0 ))
             then
                 n_workers_guess="1"
                 athena_worker_logs="${main_log}"
             else
-                # required to get the correct sort order
+                # ensures the correct sort order
                 athena_worker_logs1="$(find -L ${base_location} -name "AthenaMP.log" |sort |grep '/worker_./')"
                 athena_worker_logs2="$(find -L ${base_location} -name "AthenaMP.log" |sort |grep '/worker_../')"
                 athena_worker_logs="$(echo "${athena_worker_logs1} ${athena_worker_logs2}")"
@@ -179,19 +192,49 @@ do
             worker_arr=(${athena_worker_logs})
             n_finished_events_logs="$(cat $athena_worker_logs |grep -c "${pattrn2}")"
             
-            if (( ${n_finished_events_logs} > 0 ))
+            if (( n_finished_events_logs > 0 ))
             then
                 n_workers="${n_workers_guess}"
                 n_finished_events="${n_finished_events_logs}"
                 
-                # There are lots of different timestamps
-                # As ETA will never be accurate I take starting time from main_log line 2
-                time_calcstart_s="$(date -d "$(sed -e '2 s/^[^ ]*.\(.*\)/\1/p' -n ${main_log})" +%s)"
-                time_used_s="$(( $(date +%s) - ${time_calcstart_s} ))"
-                time_used_calc="$(( ${time_used_s} / ${n_finished_events} ))"
+                if (( n_finished_events == n_finished_events_last ))
+                then
+                    (( time_left_reduction += 60 ))
+                else
+                    time_left_reduction="0"
+                    n_finished_events_last="${n_finished_events}"
+                fi
                 
-                time_left_s="$(( (${n_events} - ${n_finished_events}) * ${time_used_calc} ))"
+                # As ETA will never be accurate I estimate it from the logfile averages values
+                calc_average_logs="0"
+                active_workers="0"
+                
+                for worker in "${worker_arr[@]}"
+                do
+                    # get the most recent line that includes a finished event
+                    calc_average_worker="$(tac ${worker} |sed -n -e "0,/${pattrn2}/ s/^.*${pattrn2}[^0-9]*\([0-9]*\).*/\1/p")"
+                    
+                    if [[ "${calc_average_worker}" != "" ]]
+                    then
+                        (( calc_average_logs += calc_average_worker ))
+                        (( active_workers ++ ))
+                    fi
+                    
+                done
 
+                calc_average_logs="$(( calc_average_logs / active_workers ))"
+                n_events_left="$(( n_events - n_finished_events ))"
+
+                time_left_s="$(( n_events_left * calc_average_logs / n_workers - time_left_reduction ))"
+                
+                if (( time_left_s < 0 ))
+                then
+                     msg_overdue="overdue"
+                     time_left_s="$(( -time_left_s ))"
+                else
+                     msg_overdue=""
+                fi
+                
                 time_left_d="$(( ${time_left_s} / 86400 ))"
                 time_left_s="$(( ${time_left_s} - ${time_left_d} * 86400 ))"
 
@@ -199,6 +242,7 @@ do
                 time_left_s="$(( ${time_left_s} - ${time_left_h} * 3600 ))"
 
                 time_left_m="$(( ${time_left_s} / 60 ))"
+
             fi
             
         fi
@@ -207,99 +251,86 @@ do
     
     
     # formatted output starts here
-    
-    # start with a blank screen
-    printf "\033c"
-    
-    printf "ATLAS Event Monitoring\n\n"
+    # screen is already blank
+    # start at upper left corner \033[0;0H
+    # bold (sure this works on all terminals?): \033[1m
+    # reset attributes: \033[0m
+    # clear until end of line: \033[K
+    # clear until end of page: \033[J
 
-    printf "Total number of events to be processed  : %14s\n" ${n_events}
-    printf "Total number of events already finished : %14s\n" ${n_finished_events}
-    printf "Time left (rough estimate)              : "
-    
+    printf "\033[0;0H"
+    printf "**********************************************************************\033[K\n"
+    printf "*                  \033[1mATLAS Event Progress Monitoring\033[0m                   *\033[K\n"
+    printf "*                               v2.1.0                               *\033[K\n"
+    printf "*              last display update (VM time):  %8s              *\033[K\n" "$(date "+%T")"
+    printf "**********************************************************************\033[K\n"
+    printf "Number of events to be processed  :                     %14s\033[K\n" "${n_events}"
+    printf "Number of events already finished :                     %14s\033[K\n" "${n_finished_events}"
+    printf "Time left (rough estimate)        :             %7s " "${msg_overdue}"
+
     if [[ "${n_finished_events}" == "N/A" ]]
     then
-        printf "           N/A\n"
+        printf "           N/A\033[K\n"
     else
-        printf "%5sd %2sh %2sm\n" ${time_left_d} ${time_left_h} ${time_left_m}
+        printf "%5sd %2sh %2sm\033[K\n" "${time_left_d}" "${time_left_h}" "${time_left_m}"
     fi
     
-    echo "--------------------------------------------------------"
-    printf "Last finished event(s) from %s worker logfile(s):\n" ${n_workers}
-    
+    printf "%s\033[K\n" "----------------------------------------------------------------------"
+    printf "Last finished event(s) from %s worker logfile(s):\033[K\n" "${n_workers}"
+
     if [[ "${n_workers}" != "N/A" ]]
     then
-        extra_space=1; (( ${n_workers} > 9 )) && extra_space=2
+        extra_space="1"; (( n_workers > 9 )) && extra_space="2"
+        terminal_lines="$(( $(tput lines) - 12 ))"
 
         for worker_index in "${!worker_arr[@]}"
         do
-            (( $worker_index > $(( $(tput lines) - 9 )) )) && break
+            (( worker_index > terminal_lines )) && break
             
             # strip timestamps from loglines to avoid confusion
             message="$(sed -e "/${pattrn2}/ s/^.*\(Event.*\)/\1/ p" -n ${worker_arr[worker_index]} |tail -n 1)"
             [[ "${message}" == "" ]] && message="N/A"
-            printf "worker %${extra_space}s: %s\n" $(( ${worker_index} + 1 )) "${message}"
+            printf "worker %${extra_space}s: %s\033[K\n" "$(( ${worker_index} + 1 ))" "${message}"
         done
         
     fi
+    
+    if (( n_events_left == 0 ))
+    then
+        printf "%s\033[K\n" "----------------------------------------------------------------------"
+        printf "Calculation completed. Preparing HITS file ...\033[K\n"
+    fi
+    
+    # clear util end of page
+    printf "\033[J"
 
     # avoids a blinking cursor
     tput civis
 
-    # avoid screensaver blanking screen
-    setterm -blank poke
-    
     # screen updates every 60 s
     sleep 60
 done
 EOF_moni_on_tty2
 
 # must be made executable to work as shell
-chmod go-w /usr/local/bin/moni_on_tty2
-chmod a+rx /usr/local/bin/moni_on_tty2
-chown root:root /usr/local/bin/moni_on_tty2
-
-
-useradd -s /usr/local/bin/moni_on_tty2 -U ${user_on_tty2} >/dev/null 2>&1
-echo ${user_on_tty2}:$(tr -cd a-zA-Z < /dev/urandom |head -c 1)$(tr -cd a-zA-Z0-9 < /dev/urandom |head -c 11) |chpasswd
-
-mkdir -p /home/${user_on_tty2}/RunAtlas
-chown -R ${user_on_tty2}:${user_on_tty2} /home/${user_on_tty2}
-chmod -R a+rwx /home/${user_on_tty2}
-
-
-# systemd's default service on tty2 must be modified to avoid conflicts.
-# The modified service will then take care of (re)starting the top monitoring
-
-mkdir -p /etc/systemd/system/getty@tty2.service.d
-
-
-cat > /etc/systemd/system/getty@tty2.service.d/override.conf << EOF_override_tty2_service
-[Service]
-ExecStart=
-ExecStart=-/sbin/agetty --autologin ${user_on_tty2} %I \$TERM
-WorkingDirectory=/home/${user_on_tty2}
-RestartSec=2s
-EOF_override_tty2_service
-
-
-systemctl daemon-reload
-
-if [ "$(systemctl show -p ActiveState getty@tty2.service)" != "ActiveState=inactive" ]
-then
-        systemctl stop getty@tty2.service
-        systemctl start getty@tty2.service
-fi
+chmod 750 /usr/local/bin/moni_on_tty2
+chown ${user_on_tty}:${user_on_tty} /usr/local/bin/moni_on_tty2
 
 
 cat > /usr/local/bin/dump_atlas_logs << 'EOF_dump_atlas_logs'
 #!/bin/bash
 
 # ATLAS logs don't grant read access to other accounts but atlas
-# Hence we need to dump the logs to a location where the monitoring user can read them
+# Hence we need to dump the logs to a file where the monitoring user can read them
 
 source_location="/home/atlas/RunAtlas"
 target_location="/home/montty2/RunAtlas"
+
+pattrn1="ISFG4SimSvc.*INFO.*Event nr.*took.*New average"
+
+# use "install -d" instead of mkdir, chown, chmod
+install -d -o montty2 -g montty2 -m 777 ${target_location}
+
 
 # trigger 1: main log exists
 while true
@@ -318,8 +349,6 @@ tail -f -n +1 ${main_log} >${target_location}/log.EVNTtoHITS 2>/dev/null &
 # trigger 2: check if ATLAS is running singlecore or multicore
 # it's singlecore if an event is logged in main_log
 # it's multicore if worker dirs exist
-
-pattrn1="ISFG4SimSvc.*INFO.*Event nr.*took.*New average"
 
 while true
 do
@@ -374,13 +403,55 @@ do
 done
 EOF_dump_atlas_logs
 
-chmod go-w /usr/local/bin/dump_atlas_logs
-chmod a+rx /usr/local/bin/dump_atlas_logs
+chmod 750 /usr/local/bin/dump_atlas_logs
 chown root:root /usr/local/bin/dump_atlas_logs
+
+
+# systemd's default service on tty2 must be modified to avoid conflicts.
+# The modified service will then take care of (re)starting the top monitoring
+
+mkdir -p /etc/systemd/system/getty@tty2.service.d
+
+
+cat > /etc/systemd/system/getty@tty2.service.d/override.conf << EOF_override_tty2_service
+[Unit]
+Description=ATLAS (vbox) Event Monitoring - Foreground Service
+BindsTo=atlasmonitoring_bg.service
+
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin ${user_on_tty} %I \$TERM
+RestartSec=2
+EOF_override_tty2_service
+
+
+# define background service to run "dump_atlas_logs"
+cat > /etc/systemd/system/atlasmonitoring_bg.service << EOF_atlasmonitoring_bg_service
+[Unit]
+Description=ATLAS (vbox) Event Monitoring - Background Service
+BindsTo=getty@tty2.service
+After=getty@tty2.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/rm -rf /home/${user_on_tty}/RunAtlas
+ExecStart=/usr/local/bin/dump_atlas_logs
+RemainAfterExit=yes
+ExecStopPost=/bin/rm -rf /home/${user_on_tty}/RunAtlas
+EOF_atlasmonitoring_bg_service
+
+
+systemctl daemon-reload
+
+if [[ "$(systemctl show -p ActiveState getty@tty2.service)" != "ActiveState=inactive" ]] ||
+   [[ "$(systemctl show -p ActiveState atlasmonitoring_bg.service)" != "ActiveState=inactive" ]]
+then
+        systemctl stop getty@tty2.service
+        systemctl start getty@tty2.service
+fi
 EOF_setup_moni_on_tty2
 
 sudo sh /home/atlas/setup_moni_on_tty2
-sudo sh -c /usr/local/bin/dump_atlas_logs &
 
 
 # tty3: top
@@ -391,15 +462,40 @@ cat > /home/atlas/top_on_tty3 << 'EOF_top_on_tty3'
 # new user accounts are not activated by default
 # activation can be done by setting a password
 # here a random password is used that is only valid during the VM's lifetime
-# instead of /bin/bash the new user's login shell will be /usr/bin/top
+# instead of /bin/bash the new user's login shell will be /usr/bin/topwrapper
 
 # Thanks to volunteer computezrmle for providing this script:
 # https://lhcathomedev.cern.ch/lhcathome-dev/forum_thread.php?id=494
 
-user_on_tty3="montty3"
+user_on_tty="montty3"
 
-useradd -s /usr/bin/top -U ${user_on_tty3} >/dev/null 2>&1
-echo ${user_on_tty3}:$(tr -cd a-zA-Z < /dev/urandom |head -c 1)$(tr -cd a-zA-Z0-9 < /dev/urandom |head -c 11) |chpasswd
+if [[ "$(grep "^${user_on_tty}:" /etc/passwd)" == "" ]]
+then
+    useradd -m -k '' -s /usr/local/bin/topwrapper -U ${user_on_tty} >/dev/null 2>&1
+
+    # setting a (random) password activates the user
+    pw_length_min="17"
+    pw_length_max="31"
+    pw_length="$(( pw_length_min + RANDOM % $(( pw_length_max - pw_length_min )) - 2 ))"
+
+    echo "${user_on_tty}:$(tr -cd a-zA-Z < /dev/urandom |head -c 1)$(tr -cd a-zA-Z0-9$%/=+~*#_,. < /dev/urandom |head -c ${pw_length})$(tr -cd a-zA-Z0-9 < /dev/urandom |head -c 1)" |chpasswd 2>/dev/null
+fi
+
+
+# a wrapper is used to execute some terminal commands before top
+cat > /usr/local/bin/topwrapper << 'EOF_topwrapper'
+#!/bin/bash
+
+setterm -reset 2>/dev/null
+setterm -powersave off 2>/dev/null
+setterm -blank 0 2>/dev/null
+
+top
+EOF_topwrapper
+
+chmod 750 /usr/local/bin/topwrapper
+chown ${user_on_tty}:${user_on_tty} /usr/local/bin/topwrapper
+
 
 # set top's secure mode as default together with an update delay of 7 seconds
 cat > /etc/toprc << 'EOF_toprc'
@@ -416,14 +512,14 @@ mkdir -p /etc/systemd/system/getty@tty3.service.d
 cat > /etc/systemd/system/getty@tty3.service.d/override.conf << EOF_override_tty3_service
 [Service]
 ExecStart=
-ExecStart=-/sbin/agetty --autologin ${user_on_tty3} %I \$TERM
-RestartSec=2s
+ExecStart=-/sbin/agetty --autologin ${user_on_tty} %I \$TERM
+RestartSec=1
 EOF_override_tty3_service
 
 
 systemctl daemon-reload
 
-if [ "$(systemctl show -p ActiveState getty@tty3.service)" != "ActiveState=inactive" ]
+if [[ "$(systemctl show -p ActiveState getty@tty3.service)" != "ActiveState=inactive" ]]
 then
         systemctl stop getty@tty3.service
         systemctl start getty@tty3.service
@@ -432,12 +528,6 @@ EOF_top_on_tty3
 
 sudo sh /home/atlas/top_on_tty3
 
-# old lines are obsolete
-# tty3: top
-##cat > /home/atlas01/top.sh << EOF
-##while true; do sleep 5; top -b -n1 | head -24 >/dev/tty3 2>/dev/null; done
-##EOF
-#sudo sh /home/atlas01/top.sh &
 
 ########################################
 # Start the job
