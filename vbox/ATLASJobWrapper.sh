@@ -152,8 +152,7 @@ n_events_left="-1"
 time_left_reduction="0"
 msg_overdue=""
 
-pattrn1="maxEvents"
-pattrn2="ISFG4SimSvc.*INFO.*Event nr.*took.*New average"
+pattrn1="ISFG4SimSvc.*INFO.*Event nr.*took.*New average"
 
 
 while true
@@ -164,12 +163,12 @@ do
     
     main_log="$(find -L ${base_location} -name "log.EVNTtoHITS")"
     
-    if [[ "${main_log}" != "" ]]
+    if [[ "${main_log}" ]]
     then
         # Get total number of events from main_log
         n_events_log="$(sed -e 's/^.*maxEvents[^0-9]*\([0-9]*\)/\1/p' -n ${main_log})"
         
-        if [[ "${n_events_log}" != "" ]]
+        if [[ "${n_events_log}" ]]
         then
             n_events="${n_events_log}"
             n_workers_guess="$(find -L ${base_location} -name "AthenaMP.log" |grep -c '/worker_.*/')"
@@ -183,19 +182,49 @@ do
                 n_workers_guess="1"
                 athena_worker_logs="${main_log}"
             else
-                # ensures the correct sort order
+                # required to get the correct sort order
                 athena_worker_logs1="$(find -L ${base_location} -name "AthenaMP.log" |sort |grep '/worker_./')"
                 athena_worker_logs2="$(find -L ${base_location} -name "AthenaMP.log" |sort |grep '/worker_../')"
                 athena_worker_logs="$(echo "${athena_worker_logs1} ${athena_worker_logs2}")"
             fi
 
             worker_arr=(${athena_worker_logs})
-            n_finished_events_logs="$(cat $athena_worker_logs |grep -c "${pattrn2}")"
             
+            n_finished_events_logs="0"
+            runtimes_avg="0"
+            runtimes_arr=()
+            w_msg_arr=()
+            
+            for w_index in "${!worker_arr[@]}"
+            do
+                w_msg_arr[${w_index}]="N/A"
+                eventlist_per_worker="$(grep "${pattrn1}" ${worker_arr[${w_index}]})"
+
+                if [[ "${eventlist_per_worker}" ]]
+                then
+                    w_msg_arr[${w_index}]="$(tail -n 1 < <(sed -e "s/^.*\(Event.*\)/\1/p" -n <<<"${eventlist_per_worker}"))"
+                    
+                    (( n_finished_events_logs += $(wc -l <<<"${eventlist_per_worker}") ))
+                    
+                    # As ETA will never be accurate I estimate it from the logfile entries
+                    runtimes_arr=($(xargs -n 1 -I {} sh -c "echo {} |sed 's/^.*took[^0-9]*\([0-9]*\).*/\1/'" <<<"${eventlist_per_worker}"))
+                    
+                    for n in "${runtimes_arr[@]}"
+                    do
+                        # intermediate sum
+                        (( runtimes_avg += n ))
+                    done
+                    
+                fi
+                
+            done
+
             if (( n_finished_events_logs > 0 ))
             then
                 n_workers="${n_workers_guess}"
                 n_finished_events="${n_finished_events_logs}"
+                
+                runtimes_avg="$(( runtimes_avg / n_finished_events ))"
                 
                 if (( n_finished_events == n_finished_events_last ))
                 then
@@ -205,27 +234,8 @@ do
                     n_finished_events_last="${n_finished_events}"
                 fi
                 
-                # As ETA will never be accurate I estimate it from the logfile averages values
-                calc_average_logs="0"
-                active_workers="0"
-                
-                for worker in "${worker_arr[@]}"
-                do
-                    # get the most recent line that includes a finished event
-                    calc_average_worker="$(tac ${worker} |sed -n -e "0,/${pattrn2}/ s/^.*${pattrn2}[^0-9]*\([0-9]*\).*/\1/p")"
-                    
-                    if [[ "${calc_average_worker}" != "" ]]
-                    then
-                        (( calc_average_logs += calc_average_worker ))
-                        (( active_workers ++ ))
-                    fi
-                    
-                done
-
-                calc_average_logs="$(( calc_average_logs / active_workers ))"
                 n_events_left="$(( n_events - n_finished_events ))"
-
-                time_left_s="$(( n_events_left * calc_average_logs / n_workers - time_left_reduction ))"
+                time_left_s="$(( n_events_left * runtimes_avg / n_workers - time_left_reduction ))"
                 
                 if (( time_left_s < 0 ))
                 then
@@ -261,7 +271,7 @@ do
     printf "\033[0;0H"
     printf "**********************************************************************\033[K\n"
     printf "*                  \033[1mATLAS Event Progress Monitoring\033[0m                   *\033[K\n"
-    printf "*                               v2.1.0                               *\033[K\n"
+    printf "*                               v2.2.0                               *\033[K\n"
     printf "*              last display update (VM time):  %8s              *\033[K\n" "$(date "+%T")"
     printf "**********************************************************************\033[K\n"
     printf "Number of events to be processed  :                     %14s\033[K\n" "${n_events}"
@@ -283,14 +293,10 @@ do
         extra_space="1"; (( n_workers > 9 )) && extra_space="2"
         terminal_lines="$(( $(tput lines) - 12 ))"
 
-        for worker_index in "${!worker_arr[@]}"
+        for w_index in "${!worker_arr[@]}"
         do
-            (( worker_index > terminal_lines )) && break
-            
-            # strip timestamps from loglines to avoid confusion
-            message="$(sed -e "/${pattrn2}/ s/^.*\(Event.*\)/\1/ p" -n ${worker_arr[worker_index]} |tail -n 1)"
-            [[ "${message}" == "" ]] && message="N/A"
-            printf "worker %${extra_space}s: %s\033[K\n" "$(( ${worker_index} + 1 ))" "${message}"
+            (( w_index > terminal_lines )) && break
+            printf "worker %${extra_space}s: %s\033[K\n" "$(( ${w_index} + 1 ))" "${w_msg_arr[${w_index}]}"
         done
         
     fi
@@ -513,7 +519,7 @@ cat > /etc/systemd/system/getty@tty3.service.d/override.conf << EOF_override_tty
 [Service]
 ExecStart=
 ExecStart=-/sbin/agetty --autologin ${user_on_tty} %I \$TERM
-RestartSec=1
+RestartSec=2
 EOF_override_tty3_service
 
 
