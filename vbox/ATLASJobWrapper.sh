@@ -220,7 +220,7 @@ function update_display_on_tty {
     printf "\033[0;0H"
     printf "***************************************************\033[K\n"
     printf "*         \033[1mATLAS Event Progress Monitoring\033[0m         *\033[K\n"
-    printf "*                     v3.0.0                      *\033[K\n"
+    printf "*                     v3.1.0                      *\033[K\n"
 
     if [[ "${1}" == "starting" ]]
     then
@@ -230,13 +230,13 @@ function update_display_on_tty {
         printf "*     last display update (VM time): %8s     *\033[K\n" "$(date "+%T")"
         printf "***************************************************\033[K\n"
         printf "Number of events\033[K\n"
-        printf "   to be processed  :                       %7s\033[K\n" "${n_events}"
+        printf "   total            :                       %7s\033[K\n" "${n_events}"
         printf "   already finished :                       %7s\033[K\n" "${n_finished_events}"
         printf "Event runtimes\033[K\n"
         printf "   arithmetic mean  :                       %7s\033[K\n" "${rntme_arth_mean}"
         printf "   min / max        :             %17s\033[K\n" "${rntme_min_max}"
         printf "Estimated time left\033[K\n"
-        printf "   total            :  %7s  %19s\033[K\n" "${msg_overdue}" "${time_left}"
+        printf "   total            :  %8s %19s\033[K\n" "${msg_overtime}" "${time_left}"
         printf "   uncertainty      :           %19s\033[K\n" "${time_left_uncert}"
         printf "%s\033[K\n" "---------------------------------------------------"
 
@@ -413,15 +413,15 @@ do
                 fi
                 
                 n_events_left="$(( n_events - n_finished_events ))"
-            
-                time_left_s="$(( n_events_left * rntme_arth_mean / n_workers - time_left_reduction ))"
+                time_left_s="0"
+                (( n_events_left > 0 )) && time_left_s="$(( n_events_left * rntme_arth_mean / n_workers - time_left_reduction ))"
 
                 if (( time_left_s < 0 ))
                 then
-                     msg_overdue="overdue"
+                     msg_overtime="overtime"
                      time_left_s="$(( -time_left_s ))"
                 else
-                     msg_overdue=""
+                     msg_overtime=""
                 fi
             
                 # format rntme_arth_mean
