@@ -122,13 +122,155 @@ then
     pw_length_max="31"
     pw_length="$(( pw_length_min + RANDOM % $(( pw_length_max - pw_length_min )) - 2 ))"
     
-    echo "${user_on_tty}:$(tr -cd a-zA-Z < /dev/urandom |head -c 1)$(tr -cd a-zA-Z0-9$%/=+~*#_,. < /dev/urandom |head -c ${pw_length})$(tr -cd a-zA-Z0-9 < /dev/urandom |head -c 1)" |chpasswd 2>/dev/null
+    chpasswd <<< "${user_on_tty}:$(head -c 1 < <(tr -cd a-zA-Z < /dev/urandom))$(head -c ${pw_length} < <(tr -cd a-zA-Z0-9$%/=+~*#_,. < /dev/urandom))$(head -c 1 < <(tr -cd a-zA-Z0-9 < /dev/urandom))" 2>/dev/null
 fi
 
 cat > /usr/local/bin/moni_on_tty2 << 'EOF_moni_on_tty2'
 #!/bin/bash
 
 # ATLAS monitoring script to be run by user montty2 at console ALT-F2 of VirtualBox VMs
+
+
+function get__n_events__n_workers {
+    local ppid="${1}"
+    local logfile="${2}"
+    
+    # wait until "pattrn" appears in logfile
+    # run as background job that dies when it's parent "pid ${1}" exits
+    pattrn="^.*maxEvents =[^0-9]*"
+    logline="$(grep -E -m 1 -s "${pattrn}" <(tail -F -n +1 --pid ${ppid} ${logfile} 2>/dev/null) 2>/dev/null)"
+    
+    # a simple method to return a parameter back to the calling program
+    n_events="$(sed -e "0,/${pattrn}/ s/${pattrn}\([0-9]\+\).*/\1/p" -n <<< "${logline}")"
+    echo "n_events=\"${n_events}\"" >>${para_file}
+
+
+    # it's a multicore if ATHENA_PROC_NUMBER is in the log before maxEvents
+    pattrn="^.*ATHENA_PROC_NUMBER set to[^0-9]*"
+    n_workers="$(sed -e "0,/${pattrn}/ s/${pattrn}\([0-9]\+\).*/\1/p" -n ${logfile})"
+    # it's a singlecore if ATHENA_PROC_NUMBER is missing
+    [[ ! "${n_workers}" ]] && n_workers="1"
+    
+    echo "n_workers=\"${n_workers}\"" >>${para_file}
+
+    for (( i=0; i<n_workers; ++i ))
+    do
+        echo "w_msg_arr[${i}]=\"N/A\"" >>${para_file}
+    done
+
+}
+
+
+function get_worker_status {
+    local ppid="${1}"
+    local logfile="${2}"
+    local worker_index="${3}"
+    
+    # wait until "pattrn" appears in logfile
+    # run as background job that dies when it's parent "pid ${1}" exits
+    pattrn="^.*AthenaEventLoopMgr.*INFO.*start processing event"
+    grep -E -m 1 -s "${pattrn}" <(tail -F -n +1 --pid ${ppid} ${logfile} 2>/dev/null) >/dev/null 2>&1
+
+    # a simple method to return a parameter back to the calling program
+    echo "w_msg_arr[${worker_index}]=\"Event nr. 1 processing\"" >>${para_file}
+}
+
+
+function format_timestring {
+    time_s="${1}"
+    
+    time_d="$(( time_s / 86400 ))"
+    time_s="$(( time_s - time_d * 86400 ))"
+    
+    time_h="$(( time_s / 3600 ))"
+    time_s="$(( time_s - time_h * 3600 ))"
+    
+    time_m="$(( time_s / 60 ))"
+
+    
+    if (( time_d != 0 ))
+    then
+        time_string="$(printf "%5s d %2s h %2s min" "${time_d}" "${time_h}" "${time_m}")"
+    else
+
+        if (( time_h != 0 ))
+        then
+            time_string="$(printf "        %2s h %2s min" "${time_h}" "${time_m}")"
+        else
+            time_string="$(printf "             %2s min" "${time_m}")"
+        fi
+    
+    fi
+
+    echo "${time_string}"
+}
+
+
+function update_display_on_tty {
+    # formatted output starts here
+    # screen is already blank
+    # don't blank it again to avoid flickering
+    # instead start at upper left corner \033[0;0H
+    # bold (sure this works on all terminals?): \033[1m
+    # reset attributes: \033[0m
+    # clear until end of line: \033[K
+    # clear until end of page: \033[J
+    # version string is hardcoded to ensure it is centered
+    
+    printf "\033[0;0H"
+    printf "***************************************************\033[K\n"
+    printf "*         \033[1mATLAS Event Progress Monitoring\033[0m         *\033[K\n"
+    printf "*                     v3.0.0                      *\033[K\n"
+
+    if [[ "${1}" == "starting" ]]
+    then
+        printf "*                    Starting                     *\033[K\n"
+        printf "***************************************************\033[K\n"
+    else
+        printf "*     last display update (VM time): %8s     *\033[K\n" "$(date "+%T")"
+        printf "***************************************************\033[K\n"
+        printf "Number of events\033[K\n"
+        printf "   to be processed  :                       %7s\033[K\n" "${n_events}"
+        printf "   already finished :                       %7s\033[K\n" "${n_finished_events}"
+        printf "Event runtimes\033[K\n"
+        printf "   arithmetic mean  :                       %7s\033[K\n" "${rntme_arth_mean}"
+        printf "   min / max        :             %17s\033[K\n" "${rntme_min_max}"
+        printf "Estimated time left\033[K\n"
+        printf "   total            :  %7s  %19s\033[K\n" "${msg_overdue}" "${time_left}"
+        printf "   uncertainty      :           %19s\033[K\n" "${time_left_uncert}"
+        printf "%s\033[K\n" "---------------------------------------------------"
+
+        if [[ "${n_workers}" != "N/A" ]] &&
+           [[ "${n_events}" != "N/A" ]]
+        then
+            printf "Status of last event per worker thread:\033[K\n"
+
+            for (( i=1; i<=n_workers; i++ ))
+            do
+                printf "worker %${#n_workers}s: %s\033[K\n" "${i}" "${w_msg_arr[$(( i - 1 ))]}"
+            done
+        
+        fi
+    
+        if (( n_events_left == 0 ))
+        then
+            printf "%s\033[K\n" "---------------------------------------------------"
+            printf "Calculation completed. Preparing HITS file ...\033[K\n"
+        fi
+        
+    fi
+    
+    # clear util end of page
+    printf "\033[J"
+
+    # avoids a blinking cursor
+    tput civis
+}
+
+
+#######################
+# start of main section
+#######################
 
 # basic terminal control to keep it alive
 setterm -reset 2>/dev/null
@@ -142,91 +284,127 @@ printf "\033c"
 tput civis
 
 
-# base_location needs to be set to a place where we have read access.
-base_location="/home/montty2/RunAtlas"
-n_events="N/A"
+# initialize global parameters
+# requires complete path here. Doesn't work with "~"
+para_file="/home/montty2/parameters.txt"
+rm -f ${para_file}
+touch ${para_file}
+
+base_logpath="/home/montty2/RunAtlas"
+main_log="${base_logpath}/log.EVNTtoHITS"
+logname_1core="${main_log}"
+
+# this must later be prefixed with a path like "${base_logpath}/worker_x/"
+logname_mcore="AthenaMP.log"
+
 n_workers="N/A"
+n_events="N/A"
 n_finished_events="N/A"
-n_finished_events_last="0"
+rntme_arth_mean="N/A"
+rntme_min_max="N/A"
+time_left="N/A"
+time_left_uncert="N/A"
 n_events_left="-1"
-time_left_reduction="0"
-msg_overdue=""
+init_loop_counter="0"
+n_finished_events_last="0"
+w_status_started="0"
 
-pattrn1="ISFG4SimSvc.*INFO.*Event nr.*took.*New average"
+w_msg_headline="Event status per worker thread:"
 
 
-while true
+# subfunction running asynchronously
+get__n_events__n_workers ${$} ${main_log} &
+
+
+# main loop starts here
+while :
 do
-    # collect all information that should be displayed
-    # information is spread over a couple of logfiles
-    # singlecore and multicore tasks use a different logfile structure
+    # why? See end of the while loop
+    next_loopstart="$(( $(date +%s) + 60 ))"
     
-    main_log="$(find -L ${base_location} -name "log.EVNTtoHITS")"
+    # source parameters that were set by subfunctions
+    . ${para_file}
     
-    if [[ "${main_log}" ]]
+    if [[ "${n_events}" != "N/A" ]] &&
+       [[ "${n_workers}" != "N/A" ]]
     then
-        # Get total number of events from main_log
-        n_events_log="$(sed -e 's/^.*maxEvents[^0-9]*\([0-9]*\)/\1/p' -n ${main_log})"
-        
-        if [[ "${n_events_log}" ]]
+
+        if (( n_workers == 1 )) ||
+           ( (( n_workers > 1 )) &&
+             (( n_workers == $(wc -l < <(find -L ${base_logpath} -name "${logname_mcore}")) )) )
         then
-            n_events="${n_events_log}"
-            n_workers_guess="$(find -L ${base_location} -name "AthenaMP.log" |grep -c '/worker_.*/')"
 
-            # No worker directories? --> guess it's a singlecore setup
-            # In this case event results are also written to main_log
-            # but might be that the structure is not yet complete!!
-            
-            if (( n_workers_guess == 0 ))
+            if (( w_status_started == 0 ))
             then
-                n_workers_guess="1"
-                athena_worker_logs="${main_log}"
-            else
-                # required to get the correct sort order
-                athena_worker_logs1="$(find -L ${base_location} -name "AthenaMP.log" |sort |grep '/worker_./')"
-                athena_worker_logs2="$(find -L ${base_location} -name "AthenaMP.log" |sort |grep '/worker_../')"
-                athena_worker_logs="$(echo "${athena_worker_logs1} ${athena_worker_logs2}")"
-            fi
-
-            worker_arr=(${athena_worker_logs})
-            
-            n_finished_events_logs="0"
-            runtimes_avg="0"
-            runtimes_arr=()
-            w_msg_arr=()
-            
-            for w_index in "${!worker_arr[@]}"
-            do
-                w_msg_arr[${w_index}]="N/A"
-                eventlist_per_worker="$(grep "${pattrn1}" ${worker_arr[${w_index}]})"
-
-                if [[ "${eventlist_per_worker}" ]]
+                # sometimes it takes very long to finish the 1st event
+                # to calm down impatient volunteers get an intermediate status
+        
+                if (( n_workers == 1 ))
                 then
-                    w_msg_arr[${w_index}]="$(tail -n 1 < <(sed -e "s/^.*\(Event.*\)/\1/p" -n <<<"${eventlist_per_worker}"))"
-                    
-                    (( n_finished_events_logs += $(wc -l <<<"${eventlist_per_worker}") ))
-                    
-                    # As ETA will never be accurate I estimate it from the logfile entries
-                    runtimes_arr=($(xargs -n 1 -I {} sh -c "echo {} |sed 's/^.*took[^0-9]*\([0-9]*\).*/\1/'" <<<"${eventlist_per_worker}"))
-                    
-                    for n in "${runtimes_arr[@]}"
+                    logfile_arr[0]="${logname_1core}"
+                    get_worker_status ${$} "${logname_1core}" 0 &
+                else
+            
+                    for (( i=0; i<n_workers; ++i ))
                     do
-                        # intermediate sum
-                        (( runtimes_avg += n ))
+                        logfile_arr[${i}]="${base_logpath}/worker_${i}/${logname_mcore}"
+                        get_worker_status ${$} "${base_logpath}/worker_${i}/${logname_mcore}" ${i} &
                     done
+                
+                fi
+            
+                w_status_started="1"
+            fi
+        
+            # clear runtimes array
+            rntme_arr=()
+        
+            for (( i=0; i<n_workers; ++i ))
+            do
+                # get all events that are already finished
+                evlist_per_worker="$(grep "^.*ISFG4SimSvc.*INFO.*Event nr.*took.*New average" ${logfile_arr[${i}]})"
+
+                if [[ "${evlist_per_worker}" ]]
+                then
+                    # get the last event that has finished
+                    w_msg_arr[${i}]="$(sed -e "0,/^.*Event.*took[^0-9]*[0-9]\+/ s/^.*\(Event.*took[^0-9]*[0-9]\+\).*/\1 s/p" -n <(tac <<< "${evlist_per_worker}"))"
                     
+                    # collect runtimes from the logs so they can later be used to estimate time left
+                    rntme_arr=("${rntme_arr[@]}" $(xargs -n 1 -I {} sh -c "echo {} |sed 's/^.*Event.*took[^0-9]*\([0-9]\+\).*/\1/'" <<< "${evlist_per_worker}"))
                 fi
                 
             done
-
-            if (( n_finished_events_logs > 0 ))
+        
+            # if at least 1 event has finished
+            if (( ${#rntme_arr[@]} > 0 ))
             then
-                n_workers="${n_workers_guess}"
-                n_finished_events="${n_finished_events_logs}"
-                
-                runtimes_avg="$(( runtimes_avg / n_finished_events ))"
-                
-                if (( n_finished_events == n_finished_events_last ))
+                # don't do this outside "if" as it would overwrite "N/A"
+                n_finished_events="${#rntme_arr[@]}"
+            
+                # min and max runtimes
+                rntme_min="${rntme_arr[0]}"
+                rntme_max="${rntme_arr[0]}"
+            
+                for rt in "${rntme_arr[@]}"
+                do
+                    (( rt < rntme_min )) && rntme_min="${rt}"
+                    (( rt > rntme_max )) && rntme_max="${rt}"
+                done
+            
+                rntme_min_max="${rntme_min} / ${rntme_max} s"
+
+                # runtimes: global arithmetic mean
+                rntme_arth_mean="$(awk '{ sum=0; for (i=1; i<=NF; i++) { sum+=$i } printf "%f", sum/NF }' <<< "${rntme_arr[@]}")"
+        
+                # runtimes: global standard deviation
+                # place ${rntme_arr[@]} as last parameter as it has variable length
+                rntme_sd="$(awk '{ ssq=0; for (i=3; i<=NF; i++) { ssq+=($i-$1)**2 } printf "%.0f", sqrt(ssq)/$2 }' <<< "${rntme_arth_mean} ${n_finished_events} ${rntme_arr[@]}")"
+
+                # round to integer value
+                # avoid surprises due to language setting
+                rntme_arth_mean="$(LC_NUMERIC="en_US.UTF-8"; printf "%.0f\n" "${rntme_arth_mean}")"
+        
+                if (( n_finished_events_last == n_finished_events ))
                 then
                     (( time_left_reduction += 60 ))
                 else
@@ -235,8 +413,9 @@ do
                 fi
                 
                 n_events_left="$(( n_events - n_finished_events ))"
-                time_left_s="$(( n_events_left * runtimes_avg / n_workers - time_left_reduction ))"
-                
+            
+                time_left_s="$(( n_events_left * rntme_arth_mean / n_workers - time_left_reduction ))"
+
                 if (( time_left_s < 0 ))
                 then
                      msg_overdue="overdue"
@@ -244,77 +423,35 @@ do
                 else
                      msg_overdue=""
                 fi
+            
+                # format rntme_arth_mean
+                rntme_arth_mean="$(printf "%s s\n" "${rntme_arth_mean}")"
+            
+                time_left="$(format_timestring "${time_left_s}")"
                 
-                time_left_d="$(( ${time_left_s} / 86400 ))"
-                time_left_s="$(( ${time_left_s} - ${time_left_d} * 86400 ))"
-
-                time_left_h="$(( ${time_left_s} / 3600 ))"
-                time_left_s="$(( ${time_left_s} - ${time_left_h} * 3600 ))"
-
-                time_left_m="$(( ${time_left_s} / 60 ))"
-
+                # estimate "uncertainty"
+                time_left_uncert_s="$(( n_events_left * rntme_sd / n_workers ))"
+                time_left_uncert="$(format_timestring "${time_left_uncert_s}")"
             fi
             
         fi
-        
+
     fi
     
-    
-    # formatted output starts here
-    # screen is already blank
-    # start at upper left corner \033[0;0H
-    # bold (sure this works on all terminals?): \033[1m
-    # reset attributes: \033[0m
-    # clear until end of line: \033[K
-    # clear until end of page: \033[J
-
-    printf "\033[0;0H"
-    printf "**********************************************************************\033[K\n"
-    printf "*                  \033[1mATLAS Event Progress Monitoring\033[0m                   *\033[K\n"
-    printf "*                               v2.2.0                               *\033[K\n"
-    printf "*              last display update (VM time):  %8s              *\033[K\n" "$(date "+%T")"
-    printf "**********************************************************************\033[K\n"
-    printf "Number of events to be processed  :                     %14s\033[K\n" "${n_events}"
-    printf "Number of events already finished :                     %14s\033[K\n" "${n_finished_events}"
-    printf "Time left (rough estimate)        :             %7s " "${msg_overdue}"
-
-    if [[ "${n_finished_events}" == "N/A" ]]
+    # at start or restart the main loop needs a few laps to get the setup done
+    if (( init_loop_counter < 3 ))
     then
-        printf "           N/A\033[K\n"
+        (( init_loop_counter ++ ))
+        update_display_on_tty starting
+        sleep 2
     else
-        printf "%5sd %2sh %2sm\033[K\n" "${time_left_d}" "${time_left_h}" "${time_left_m}"
-    fi
-    
-    printf "%s\033[K\n" "----------------------------------------------------------------------"
-    printf "Last finished event(s) from %s worker logfile(s):\033[K\n" "${n_workers}"
-
-    if [[ "${n_workers}" != "N/A" ]]
-    then
-        extra_space="1"; (( n_workers > 9 )) && extra_space="2"
-        terminal_lines="$(( $(tput lines) - 12 ))"
-
-        for w_index in "${!worker_arr[@]}"
-        do
-            (( w_index > terminal_lines )) && break
-            printf "worker %${extra_space}s: %s\033[K\n" "$(( ${w_index} + 1 ))" "${w_msg_arr[${w_index}]}"
-        done
+        update_display_on_tty
         
+        # regular display update every 60 s
+        # avoid too much drifting on heavily loaded systems
+        sleep $(( next_loopstart - $(date +%s) )) 2>/dev/null
     fi
-    
-    if (( n_events_left == 0 ))
-    then
-        printf "%s\033[K\n" "----------------------------------------------------------------------"
-        printf "Calculation completed. Preparing HITS file ...\033[K\n"
-    fi
-    
-    # clear util end of page
-    printf "\033[J"
 
-    # avoids a blinking cursor
-    tput civis
-
-    # screen updates every 60 s
-    sleep 60
 done
 EOF_moni_on_tty2
 
@@ -331,17 +468,19 @@ cat > /usr/local/bin/dump_atlas_logs << 'EOF_dump_atlas_logs'
 
 source_location="/home/atlas/RunAtlas"
 target_location="/home/montty2/RunAtlas"
-
-pattrn1="ISFG4SimSvc.*INFO.*Event nr.*took.*New average"
+main_log_name="log.EVNTtoHITS"
+athena_log_name="AthenaMP.log"
+athena_workers_dir="athenaMP-workers-EVNTtoHITS-sim"
 
 # use "install -d" instead of mkdir, chown, chmod
 install -d -o montty2 -g montty2 -m 777 ${target_location}
 
 
 # trigger 1: main log exists
-while true
+while :
 do
-    main_log="$(find -L ${source_location} -name "log.EVNTtoHITS")"
+    main_log="$(find -L ${source_location} -name "${main_log_name}")"
+    
     [[ "${main_log}" != "" ]] && break
 
     # check all 10 s (we are not in a hurry)
@@ -349,64 +488,33 @@ do
 done
 
 # tail complete file starting at line 1
-tail -f -n +1 ${main_log} >${target_location}/log.EVNTtoHITS 2>/dev/null &
+tail -f -n +1 ${main_log} >${target_location}/${main_log_name} 2>/dev/null &
 
 
-# trigger 2: check if ATLAS is running singlecore or multicore
-# it's singlecore if an event is logged in main_log
-# it's multicore if worker dirs exist
+# check if ATLAS is running singlecore or multicore
 
-while true
-do
-    # work is done if it's a singlecore
-    [[ "$(grep "${pattrn1}" ${main_log})" ]] && exit 0
+# wait until maxEvents appears in main_log
+grep -E -m 1 -s "^.*maxEvents =[^0-9]*[0-9]+" <(tail -F -n +1 --pid ${$} ${main_log} 2>/dev/null) 2>/dev/null
+
+# it's a multicore if ATHENA_PROC_NUMBER is in the log before maxEvents
+# it's a singlecore if ATHENA_PROC_NUMBER is missing
+pattrn="^.*ATHENA_PROC_NUMBER set to[^0-9]*"
+n_workers="$(sed -e "0,/${pattrn}/ s/${pattrn}\([0-9]\+\).*/\1/p" -n ${main_log})"
+[[ ! "${n_workers}" ]] && n_workers="1"
     
-    
-    # to get the correct sort order first search all /worker_x/, then all /worker_xy/
-    
-    athena_worker_logs1="$(find -L ${source_location} -name "AthenaMP.log" |sort |grep '/worker_./')"
-    athena_worker_logs2="$(find -L ${source_location} -name "AthenaMP.log" |sort |grep '/worker_../')"
-    athena_worker_logs="$(echo "${athena_worker_logs1} ${athena_worker_logs2}")"
-    
-    # break if it's multicore
-    [[ "${athena_worker_logs}" ]] && break
-    
-    # check all 10 s
-    sleep 10
-done
+# singlecore logs to main_log
+# a tail for main_log is already running
+# now start the tails for multicore
+if (( n_workers > 1 ))
+then
 
-
-# trigger 3:
-# to avoid a race condition stay patient until at least 1 event has been finished
-worker_arr=(${athena_worker_logs})
-
-while true
-do
-    for worker_log in "${worker_arr[@]}"
+    for (( i=0; i<n_workers; ++i ))
     do
-        [[ "$(grep "${pattrn1}" ${worker_log})" ]] && break 2
+        mkdir -p ${target_location}/worker_${i}
+        tail -F -n +1 $(dirname ${main_log})/${athena_workers_dir}/worker_${i}/${athena_log_name} >${target_location}/worker_${i}/${athena_log_name} 2>/dev/null &
     done
     
-    # check all 10 s
-    sleep 10
-    
-    # scan for additional workers
-    
-    athena_worker_logs1="$(find -L ${source_location} -name "AthenaMP.log" |sort |grep '/worker_./')"
-    athena_worker_logs2="$(find -L ${source_location} -name "AthenaMP.log" |sort |grep '/worker_../')"
-    athena_worker_logs="$(echo "${athena_worker_logs1} ${athena_worker_logs2}")"
-    
-    worker_arr=(${athena_worker_logs})
-done
-
-
-    
-# setup target dirs and start tail commands
-for worker_index in "${!worker_arr[@]}"
-do
-    mkdir -p ${target_location}/worker_${worker_index}
-    tail -f -n +1 ${worker_arr[${worker_index}]} >${target_location}/worker_${worker_index}/AthenaMP.log 2>/dev/null &
-done
+fi
 EOF_dump_atlas_logs
 
 chmod 750 /usr/local/bin/dump_atlas_logs
@@ -452,8 +560,7 @@ systemctl daemon-reload
 if [[ "$(systemctl show -p ActiveState getty@tty2.service)" != "ActiveState=inactive" ]] ||
    [[ "$(systemctl show -p ActiveState atlasmonitoring_bg.service)" != "ActiveState=inactive" ]]
 then
-        systemctl stop getty@tty2.service
-        systemctl start getty@tty2.service
+    systemctl restart getty@tty2.service
 fi
 EOF_setup_moni_on_tty2
 
@@ -484,7 +591,7 @@ then
     pw_length_max="31"
     pw_length="$(( pw_length_min + RANDOM % $(( pw_length_max - pw_length_min )) - 2 ))"
 
-    echo "${user_on_tty}:$(tr -cd a-zA-Z < /dev/urandom |head -c 1)$(tr -cd a-zA-Z0-9$%/=+~*#_,. < /dev/urandom |head -c ${pw_length})$(tr -cd a-zA-Z0-9 < /dev/urandom |head -c 1)" |chpasswd 2>/dev/null
+    chpasswd <<< "${user_on_tty}:$(head -c 1 < <(tr -cd a-zA-Z < /dev/urandom))$(head -c ${pw_length} < <(tr -cd a-zA-Z0-9$%/=+~*#_,. < /dev/urandom))$(head -c 1 < <(tr -cd a-zA-Z0-9 < /dev/urandom))" 2>/dev/null
 fi
 
 
@@ -527,8 +634,7 @@ systemctl daemon-reload
 
 if [[ "$(systemctl show -p ActiveState getty@tty3.service)" != "ActiveState=inactive" ]]
 then
-        systemctl stop getty@tty3.service
-        systemctl start getty@tty3.service
+    systemctl restart getty@tty3.service
 fi
 EOF_top_on_tty3
 
