@@ -220,7 +220,7 @@ function update_display_on_tty {
     printf "\033[0;0H"
     printf "***************************************************\033[K\n"
     printf "*         \033[1mATLAS Event Progress Monitoring\033[0m         *\033[K\n"
-    printf "*                     v3.1.0                      *\033[K\n"
+    printf "*                     v3.2.0                      *\033[K\n"
 
     if [[ "${1}" == "starting" ]]
     then
@@ -398,7 +398,12 @@ do
         
                 # runtimes: global standard deviation
                 # place ${rntme_arr[@]} as last parameter as it has variable length
-                rntme_sd="$(awk '{ ssq=0; for (i=3; i<=NF; i++) { ssq+=($i-$1)**2 } printf "%.0f", sqrt(ssq)/$2 }' <<< "${rntme_arth_mean} ${n_finished_events} ${rntme_arr[@]}")"
+                rntme_sd="$(awk '{ ssq=0; for (i=3; i<=NF; i++) { ssq+=($i-$1)**2 } printf "%f", sqrt(ssq)/$2 }' <<< "${rntme_arth_mean} ${n_finished_events} ${rntme_arr[@]}")"
+
+                # multiply with 3 to cover 99.73% (6 sigma) instead of 68.27% (2 sigma) of all runtime values.
+                # see definition of "normal distribution"
+                # round to integer value
+                rntme_sd_six_sigma="$(awk '{ printf "%.0f", 3*$1 }' <<< "${rntme_sd}")"
 
                 # round to integer value
                 # avoid surprises due to language setting
@@ -430,7 +435,7 @@ do
                 time_left="$(format_timestring "${time_left_s}")"
                 
                 # estimate "uncertainty"
-                time_left_uncert_s="$(( n_events_left * rntme_sd / n_workers ))"
+                time_left_uncert_s="$(( n_events_left * rntme_sd_six_sigma / n_workers ))"
                 time_left_uncert="$(format_timestring "${time_left_uncert_s}")"
             fi
             
