@@ -1,0 +1,9 @@
+[Unit]
+Description=ATLAS (vbox) Event Monitoring - Background Service
+BindsTo=getty@tty2.service
+After=getty@tty2.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/dump_atlas_logs
+RemainAfterExit=yes

@@ -1,0 +1,54 @@
+#!/bin/bash
+
+user_on_tty="montty2"
+source_dir="/home/atlas/tty2monitor"
+
+# user montty2 requires access to the monitoring script
+# the background script is called by atlasmonitoring_bg.service
+# install them in /usr/local/bin and set the executable attribute
+install_dir="/usr/local/bin"
+nice -20 install -t ${install_dir} ${source_dir}/moni_on_tty2 ${source_dir}/dump_atlas_logs &
+
+# this installs the background service to run "dump_atlas_logs"
+install_dir="/etc/systemd/system"
+nice -20 install -m 0644 -t ${install_dir} ${source_dir}/atlasmonitoring_bg.service &
+
+# systemd's default service on tty2 must be modified to avoid conflicts.
+# The modified service will then take care of (re)starting the top monitoring
+# install the modifications in /etc/systemd/system/getty@tty2.service.d
+install_dir="/etc/systemd/system/getty@tty2.service.d"
+nice -20 install -d ${install_dir}
+nice -20 install -m 0644 -t ${install_dir} ${source_dir}/override.conf &
+
+
+# add a user with limited privileges
+# new user accounts are not activated by default
+# activation can be done by setting a password
+# here a random password is used that is only valid during the VM's lifetime
+# instead of /bin/bash the new user's login shell will be /usr/local/bin/moni_on_tty2
+
+if ! grep "^${user_on_tty}:" /etc/passwd >/dev/null 2>&1
+then
+    useradd -m -k '' -s /usr/local/bin/moni_on_tty2 -U ${user_on_tty} >/dev/null 2>&1
+
+    # setting a (random) password activates the user
+    pw_length_min="17"
+    pw_length_max="31"
+    pw_length="$(( pw_length_min + RANDOM % $(( pw_length_max - pw_length_min )) - 2 ))"
+    
+    chpasswd <<< "${user_on_tty}:$(head -c 1 < <(tr -cd a-zA-Z < /dev/urandom))$(head -c ${pw_length} < <(tr -cd a-zA-Z0-9$%/=+~*#_,. < /dev/urandom))$(head -c 1 < <(tr -cd a-zA-Z0-9 < /dev/urandom))" 2>/dev/null
+fi
+
+
+# install commands from above are running in the background
+# ensure they have finished
+wait
+
+# activate the getty override.conf and the background service
+systemctl daemon-reload
+
+if [[ "$(systemctl show -p ActiveState getty@tty2.service)" != "ActiveState=inactive" ]] ||
+   [[ "$(systemctl show -p ActiveState atlasmonitoring_bg.service)" != "ActiveState=inactive" ]]
+then
+    systemctl restart getty@tty2.service
+fi
