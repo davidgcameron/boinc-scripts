@@ -100,6 +100,9 @@ fi
 # Remove this cron which exists inside the vdi
 sudo rm -f /etc/cron.d/atlas-events
 
+# Get required files from cvmfs
+cp -r /cvmfs/atlas.cern.ch/repo/sw/BOINC/agent/tty* /home/atlas/
+
 # tty2: ATLAS Event Monitoring
 monitor_script="/home/atlas/tty2monitor/setup_moni_on_tty2"
 [[ -f "${monitor_script}" ]] && sudo sh ${monitor_script} &
