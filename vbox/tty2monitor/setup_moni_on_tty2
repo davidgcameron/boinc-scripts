@@ -39,6 +39,9 @@ then
     chpasswd <<< "${user_on_tty}:$(head -c 1 < <(tr -cd a-zA-Z < /dev/urandom))$(head -c ${pw_length} < <(tr -cd a-zA-Z0-9$%/=+~*#_,. < /dev/urandom))$(head -c 1 < <(tr -cd a-zA-Z0-9 < /dev/urandom))" 2>/dev/null
 fi
 
+# create target directory to write the logfile dumps to
+install -d -o ${user_on_tty} -g ${user_on_tty} -m 777 /home/${user_on_tty}/RunAtlas
+
 
 # install commands from above are running in the background
 # ensure they have finished
@@ -50,5 +53,8 @@ systemctl daemon-reload
 if [[ "$(systemctl show -p ActiveState getty@tty2.service)" != "ActiveState=inactive" ]] ||
    [[ "$(systemctl show -p ActiveState atlasmonitoring_bg.service)" != "ActiveState=inactive" ]]
 then
-    systemctl restart getty@tty2.service
+    # a "systemctl restart ..." does NOT restart the bg service
+    # hence it MUST be "systemctl stop ..." followed by "systemctl start ..."
+    systemctl stop getty@tty2.service
+    systemctl start getty@tty2.service
 fi

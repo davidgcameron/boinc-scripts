@@ -52,4 +52,8 @@ wait
 # activate the getty override.conf
 systemctl daemon-reload
 
-[[ "$(systemctl show -p ActiveState getty@tty3.service)" != "ActiveState=inactive" ]] && systemctl restart getty@tty3.service
+if [[ "$(systemctl show -p ActiveState getty@tty3.service)" != "ActiveState=inactive" ]]
+then
+    systemctl stop getty@tty3.service
+    systemctl start getty@tty3.service
+fi
