@@ -9,18 +9,15 @@ main_log_name="log.EVNTtoHITS"
 athena_log_name="AthenaMP.log"
 athena_workers_dir="athenaMP-workers-EVNTtoHITS-sim"
 
-# use "install -d" instead of mkdir, chown, chmod
-install -d -o montty2 -g montty2 -m 777 ${target_location}
-
 
 # trigger 1: until main log exists
 while :
 do
     main_log="$(find -L ${source_location} -name "${main_log_name}")"
-    [[ "${main_log}" != "" ]] && break
+    [[ "${main_log}" ]] && break
 
-    # check all 10 s (we are not in a hurry)
-    sleep 10
+    # check all 17 s (we are not in a hurry)
+    sleep 17
 done
 
 # tail complete file starting at line 1
@@ -30,12 +27,12 @@ tail -f -n +1 ${main_log} >${target_location}/${main_log_name} 2>/dev/null &
 # check if ATLAS is running singlecore or multicore
 
 # wait until maxEvents appears in main_log
-grep -E -m 1 -s "^.*maxEvents =[^0-9]*[0-9]+" <(tail -F -n +1 --pid ${$} ${main_log} 2>/dev/null) 2>/dev/null
+grep -E -m 1 -s "^.*maxEvents =[^0-9]*[0-9]+" <(tail -F -n +1 --pid ${$} ${target_location}/${main_log_name} 2>/dev/null) 2>/dev/null
 
 # it's a multicore if ATHENA_PROC_NUMBER is in the log before maxEvents
 # it's a singlecore if ATHENA_PROC_NUMBER is missing
 pattrn="^.*ATHENA_PROC_NUMBER set to[^0-9]*"
-n_workers="$(sed -e "0,/${pattrn}/ s/${pattrn}\([0-9]\+\).*/\1/p" -n ${main_log})"
+n_workers="$(sed -e "0,/${pattrn}/ s/${pattrn}\([0-9]\+\).*/\1/p" -n ${target_location}/${main_log_name})"
 [[ ! "${n_workers}" ]] && n_workers="1"
     
 # singlecore logs to main_log
