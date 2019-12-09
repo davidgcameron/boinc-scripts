@@ -18,11 +18,11 @@
 
 # Redirect output to stderr with timestamp
 log() {
+  IFS=''
+  while read line; do
     d=$(date)
-    IFS=''
-    while read line; do
-        echo "$d: $line" 1>&2
-    done
+    echo "$d: $line" 1>&2
+  done
 }
 exec &> >(log)
 
