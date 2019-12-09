@@ -103,6 +103,7 @@ if [ $? -ne 0 ]; then
     echo ' echo "user.max_user_namespaces = 15000" > /etc/sysctl.d/90-max_user_namespaces.conf; sysctl -p /etc/sysctl.d/90-max_user_namespaces.conf\n'
   fi
   echo "Singularity isnt working: ${output}"
+  cleanexit 1
 fi
 echo ${output}
 echo "Singularity works"
@@ -129,6 +130,7 @@ $cmd > runtime_log 2> runtime_log.err
 if [ $? -ne 0 ]; then
   echo "Job failed"
   cat runtime_log.err
+  cleanexit 1
 fi
 
 # Print some information from logs
