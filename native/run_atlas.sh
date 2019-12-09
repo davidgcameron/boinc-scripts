@@ -90,7 +90,7 @@ fi
 # Check singularity works
 echo "Checking singularity works with ${sin_binary} exec -B /cvmfs ${sin_image} hostname"
 if ! output=$(${sin_binary} exec -B /cvmfs ${sin_image} hostname 2>&1); then
-  if [[ "${sin_binary}" == "/cvmfs/"* ]] && [ $(echo "$output" | grep -c "Failed to create user namespace") == "1" ]; then
+  if [[ "${sin_binary}" == "/cvmfs/"* ]] && [ $(echo "$output" | grep -c "Failed to create user namespace") = "1" ]; then
     echo 'It looks like user namespaces are not enabled, which are required when running singularity from CVMFS.'
     echo 'Please run the following command as root to enable them:'
     echo ' echo "user.max_user_namespaces = 15000" > /etc/sysctl.d/90-max_user_namespaces.conf; sysctl -p /etc/sysctl.d/90-max_user_namespaces.conf'
