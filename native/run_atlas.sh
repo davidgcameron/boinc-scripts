@@ -39,7 +39,7 @@ echo "Arguments: $@"
 
 # Get number of threads
 threads=1
-if [ "$1" = "--threads" ]; then
+if [ "$1" = "--nthreads" ]; then
   threads=$2
 fi
 
