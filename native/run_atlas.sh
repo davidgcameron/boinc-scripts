@@ -109,16 +109,38 @@ cwdroot=/$(pwd | cut -d/ -f2)
 cmd="${sin_binary} exec --pwd $PWD -B /cvmfs,${cwdroot} ${sin_image} sh start_atlas.sh"
 echo "Running command: $cmd"
 $cmd > runtime_log 2> runtime_log.err
+
+# Check result and output files
 if [ $? -ne 0 ]; then
   echo "Job failed"
   cat runtime_log.err
-mv result.tar.gz shared/ 2>dev/null
-  
+fi
 
+# Print some information from logs
+echo " *** The last 200 lines of the pilot log: ***"
+tail -200 log.*.job.log.1
 
+if [ -f heartbeat.json ]; then
+  echo " *** Error codes and diagnostics ***"
+  grep -E "[pilot|exe]Error" /home/atlas/RunAtlas/heartbeat.json
+fi
 
+echo " *** Listing of results directory ***"
+ls -lrt
 
+# Move results to shared
+mv result.tar.gz shared/ 2>/dev/null
+# Extract file from job description
+hits=$(cat pandaJobData.out | sed 's/.*outputHitsFile[\+%3D]\([[:alnum:]._-]*\)\+.*/\1/i' | sed 's/^3D//')
+if ls -l "$hits" 1> /dev/null 2>&1; then
+  mv $hits shared/HITS.pool.root.1 2>/dev/null
+  echo "HITS file was successfully produced:"
+  ls -l shared/HITS.pool.root.1
+else
+  echo "No HITS result produced"
+fi
 
+echo " *** Contents of shared directory: ***"
+ls -lrt shared/
 
-
-
+exit 0
