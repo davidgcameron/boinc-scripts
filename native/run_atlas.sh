@@ -118,11 +118,12 @@ fi
 
 # Print some information from logs
 echo " *** The last 200 lines of the pilot log: ***"
-tail -200 log.*.job.log.1
+logfile=$(cat pandaJobData.out | sed 's/.*logFile=\([[:alnum:]._-]*\)\+.*/\1/i' | sed 's/.tgz$//')
+tail -200 "$logfile"
 
 if [ -f heartbeat.json ]; then
   echo " *** Error codes and diagnostics ***"
-  grep -E "[pilot|exe]Error" /home/atlas/RunAtlas/heartbeat.json
+  grep -E "[pilot|exe]Error" heartbeat.json
 fi
 
 echo " *** Listing of results directory ***"
