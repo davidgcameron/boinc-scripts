@@ -128,7 +128,7 @@ fi
 
 # Print some information from logs
 echo " *** The last 200 lines of the pilot log: ***"
-logfile=$(cat pandaJobData.out | sed 's/.*logFile=\([[:alnum:]._-]*\)\+.*/\1/i' | sed 's/.tgz$//')
+logfile=$(cat pandaJobData.out | sed 's/.*logFile=\([[:alnum:]._-]*\)\+.*/\1/i' | sed 's/.tgz//')
 tail -200 "$logfile"
 
 if [ -f heartbeat.json ]; then
