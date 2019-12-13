@@ -119,6 +119,7 @@ if [ -f /home/atlas/RunAtlas/start_atlas.sh ];then
     cd /home/atlas/RunAtlas/
     pandaid=$(tar xzf input.tar.gz -O | grep --binary-file=text -m1 -o PandaID=..........)
     taskid=$(tar xzf input.tar.gz -O | grep --binary-file=text -m1 -o taskID=........)
+    tar -O --strip-components=5 -xzf input.tar.gz */pandaJobData.out > pandaJob.out
     echo " *** Starting ATLAS job. ($pandaid $taskid) ***" | vboxmonitor
     sh start_atlas.sh > runtime_log 2> runtime_log.err
     RET=$?
@@ -138,7 +139,7 @@ if [ -f /home/atlas/RunAtlas/start_atlas.sh ];then
         
         # Check whether HITS file was produced and move it to shared
         # Extract file from job description
-        hits=$(cat pandaJobData.out | sed 's/.*outputHitsFile[\+%3D]\([[:alnum:]._-]*\)\+.*/\1/i' | sed 's/^3D//')
+        hits=$(cat pandaJob.out | sed 's/.*outputHitsFile[\+%3D]\([[:alnum:]._-]*\)\+.*/\1/i' | sed 's/^3D//')
         echo "Looking for outputfile $hits" | vboxmonitor
         if ls -l /home/atlas/RunAtlas/$hits 1> /dev/null 2>&1; then
             echo "HITS file was successfully produced" | vboxmonitor
