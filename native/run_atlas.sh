@@ -104,6 +104,9 @@ echo "Singularity works"
 # Copy input files from shared
 cp shared/* .
 
+# Create a copy of the job description
+tar -O --strip-components=5 -xzf input.tar.gz */pandaJobData.out > pandaJob.out
+
 # Set threads for ATLAS job to use
 if [ $threads -ne 1 ]; then
   echo "Set ATHENA_PROC_NUMBER=$threads"
@@ -128,7 +131,7 @@ fi
 
 # Print some information from logs
 echo " *** The last 200 lines of the pilot log: ***"
-logfile=$(cat pandaJobData.out | sed 's/.*logFile=\([[:alnum:]._-]*\)\+.*/\1/i' | sed 's/.tgz//')
+logfile=$(cat pandaJob.out | sed 's/.*logFile=\([[:alnum:]._-]*\)\+.*/\1/i' | sed 's/.tgz//')
 tail -200 "$logfile"
 
 if [ -f heartbeat.json ]; then
@@ -142,7 +145,7 @@ ls -lrt
 # Move results to shared
 mv result.tar.gz shared/ 2>/dev/null
 # Extract file from job description
-hits=$(cat pandaJobData.out | sed 's/.*outputHitsFile[\+%3D]\([[:alnum:]._-]*\)\+.*/\1/i' | sed 's/^3D//')
+hits=$(cat pandaJob.out | sed 's/.*outputHitsFile[\+%3D]\([[:alnum:]._-]*\)\+.*/\1/i' | sed 's/^3D//')
 if ls -l "$hits" 1> /dev/null 2>&1; then
   mv $hits shared/HITS.pool.root.1 2>/dev/null
   echo "HITS file was successfully produced:"
