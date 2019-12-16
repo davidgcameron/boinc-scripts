@@ -162,8 +162,10 @@ ls -lrt
 mv result.tar.gz shared/ 2>/dev/null
 # Extract file from job description
 hits=$(cat pandaJob.out | sed 's/.*outputHitsFile[\+%3D]\([[:alnum:]._-]*\)\+.*/\1/i' | sed 's/^3D//')
-if ls -l "$hits" 1> /dev/null 2>&1; then
-  mv $hits shared/HITS.pool.root.1 2>/dev/null
+if [ -z "$hits" ]; then
+  echo "Could not find HITS file from job description"
+elif ls -l "$hits" 1> /dev/null 2>&1; then
+  mv "$hits" shared/HITS.pool.root.1 2>/dev/null
   echo "HITS file was successfully produced:"
   ls -l shared/HITS.pool.root.1
 else
