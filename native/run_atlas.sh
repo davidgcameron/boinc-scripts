@@ -33,8 +33,6 @@ cleanexit() {
   exit $exitcode
 }
 
-sin_image="/cvmfs/atlas.cern.ch/repo/containers/images/singularity/x86_64-centos7.img"
-echo "Using singularity image $sin_image"
 echo "Arguments: $@"
 
 # Get number of threads
@@ -71,35 +69,49 @@ else
 fi
 echo "CVMFS is ok"
 
-# Check singularity executable
-sin_binary="/cvmfs/atlas.cern.ch/repo/containers/sw/singularity/x86_64-el7/current/bin/singularity"
-echo "Checking for singularity binary..."
-if sin_location=$(which singularity); then
-  echo "Using singularity found in PATH at ${sin_location}"
-  echo "Running ${sin_location} --version"
-  if ! ${sin_location} --version; then
-    echo "Singularity seems to be installed but not working"
-    echo "Will use version from CVMFS"
-  else
-    sin_binary=${sin_location}
-  fi
+# Check if singularity is required
+sin_required=yes
+if [ -e /etc/redhat-release ] && grep -iE "[CentOS|Red Hat].* 7" /etc/redhat-release >/dev/null; then
+  echo "Singularity not required"
+  sin_required=no
 else
-  echo "Singularity is not installed, using version from CVMFS"
+  echo "System is not Red Hat/CentOS 7, singularity is required"
 fi
 
-# Check singularity works
-echo "Checking singularity works with ${sin_binary} exec -B /cvmfs ${sin_image} hostname"
-if ! output=$(${sin_binary} exec -B /cvmfs ${sin_image} hostname 2>&1); then
-  if [[ "${sin_binary}" == "/cvmfs/"* ]] && [ $(echo "$output" | grep -c "Failed to create user namespace") = "1" ]; then
-    echo 'It looks like user namespaces are not enabled, which are required when running singularity from CVMFS.'
-    echo 'Please run the following command as root to enable them:'
-    echo ' echo "user.max_user_namespaces = 15000" > /etc/sysctl.d/90-max_user_namespaces.conf; sysctl -p /etc/sysctl.d/90-max_user_namespaces.conf'
+if [ "$sin_required" = "yes" ]; then
+  # Check singularity executable
+  sin_image="/cvmfs/atlas.cern.ch/repo/containers/images/singularity/x86_64-centos7.img"
+  echo "Using singularity image $sin_image"
+
+  sin_binary="/cvmfs/atlas.cern.ch/repo/containers/sw/singularity/x86_64-el7/current/bin/singularity"
+  echo "Checking for singularity binary..."
+  if sin_location=$(which singularity); then
+    echo "Using singularity found in PATH at ${sin_location}"
+    echo "Running ${sin_location} --version"
+    if ! ${sin_location} --version; then
+      echo "Singularity seems to be installed but not working"
+      echo "Will use version from CVMFS"
+    else
+      sin_binary=${sin_location}
+    fi
+  else
+    echo "Singularity is not installed, using version from CVMFS"
   fi
-  echo "Singularity isnt working: ${output}"
-  cleanexit 1
+
+  # Check singularity works
+  echo "Checking singularity works with ${sin_binary} exec -B /cvmfs ${sin_image} hostname"
+  if ! output=$(${sin_binary} exec -B /cvmfs ${sin_image} hostname 2>&1); then
+    if [[ "${sin_binary}" == "/cvmfs/"* ]] && [ $(echo "$output" | grep -c "Failed to create user namespace") = "1" ]; then
+      echo 'It looks like user namespaces are not enabled, which are required when running singularity from CVMFS.'
+      echo 'Please run the following command as root to enable them:'
+      echo ' echo "user.max_user_namespaces = 15000" > /etc/sysctl.d/90-max_user_namespaces.conf; sysctl -p /etc/sysctl.d/90-max_user_namespaces.conf'
+    fi
+    echo "Singularity isnt working: ${output}"
+    cleanexit 1
+  fi
+  echo ${output}
+  echo "Singularity works"
 fi
-echo ${output}
-echo "Singularity works"
 
 # Copy input files from shared
 cp shared/* .
@@ -116,9 +128,13 @@ fi
 # Prepare the command to run
 pandaid=$(zgrep -ao PandaID=.......... input.tar.gz)
 echo "Starting ATLAS job with ${pandaid}"
-cwdroot=/$(pwd | cut -d/ -f2)
 
-cmd="${sin_binary} exec --pwd $PWD -B /cvmfs,${cwdroot} ${sin_image} sh start_atlas.sh"
+sin_cmd=""
+if [ "$sin_required" = "yes" ]; then
+  cwdroot=/$(pwd | cut -d/ -f2)
+  sin_cmd="${sin_binary} exec --pwd $PWD -B /cvmfs,${cwdroot} ${sin_image} "
+fi
+cmd="${sin_cmd}sh start_atlas.sh"
 echo "Running command: $cmd"
 $cmd > runtime_log 2> runtime_log.err
 
