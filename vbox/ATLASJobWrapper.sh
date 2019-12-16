@@ -141,7 +141,9 @@ if [ -f /home/atlas/RunAtlas/start_atlas.sh ];then
         # Extract file from job description
         hits=$(cat pandaJob.out | sed 's/.*outputHitsFile[\+%3D]\([[:alnum:]._-]*\)\+.*/\1/i' | sed 's/^3D//')
         echo "Looking for outputfile $hits" | vboxmonitor
-        if ls -l /home/atlas/RunAtlas/$hits 1> /dev/null 2>&1; then
+        if [ -z "$hits" ]; then
+            echo "Could not find HITS file from job description" | vboxmonitor
+        elif ls -l /home/atlas/RunAtlas/$hits 1> /dev/null 2>&1; then
             echo "HITS file was successfully produced" | vboxmonitor
             ls -l /home/atlas/RunAtlas/$hits | vboxmonitor
             sudo mv /home/atlas/RunAtlas/$hits /home/atlas/shared/HITS.pool.root.1
