@@ -1,7 +1,9 @@
-Docker tools
-============
+Run ATLAS@Home on Docker
+========================
 
-Docker images for running ATLAS@Home tasks. When the image starts it will attach the BOINC client to the LHC@Home project and start running ATLAS native tasks. When the image is stopped (`docker stop`) it will automatically abort and report remaining tasks.
+**Note** Currently under development - and connecting to the [LHC-dev project](https://lhcathomedev.cern.ch/lhcathome-dev/). Please use the BOINC authenticator from LHC-dev to test.
+
+Docker images for running ATLAS@Home tasks. When the image starts it will attach a BOINC client to the [LHC@Home](https://lhcathome.cern.ch/lhcathome/) project and start running ATLAS tasks. When the image is stopped (`docker stop`) it will automatically abort and report remaining tasks.
 
 There are two options for managing CVMFS:
 * CVMFS already exists on the host. It must be already configured with the repos required for ATLAS tasks and can be bind-mounted into the image with the `-v` option
