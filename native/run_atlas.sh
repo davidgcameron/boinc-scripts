@@ -46,7 +46,7 @@ echo "Threads: $threads"
 # Check if job has been restarted
 if [ -f runtime_log ]; then
   echo "This job has been restarted, cleaning up previous attempt"
-  rm -rf output.list PandDA_Pilot*
+  rm -rf output.list PanDA_Pilot*
 fi
 
 # Check CVMFS
