@@ -122,7 +122,7 @@ tar -O --strip-components=5 -xzf input.tar.gz */pandaJobData.out > pandaJob.out
 # Set threads for ATLAS job to use
 if [ $threads -ne 1 ]; then
   echo "Set ATHENA_PROC_NUMBER=$threads"
-  sed -i -e '/set -x/a\export ATHENA_PROC_NUMBER='$threads start_atlas.sh
+  export ATHENA_PROC_NUMBER=$threads
 fi
 
 # Prepare the command to run
