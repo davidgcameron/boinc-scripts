@@ -1,11 +1,8 @@
-FROM centos:7
+FROM atlasadc/atlas-grid-centos7-base
 
 # Install CVMFS. Mounting has to be done at runtime if required
 RUN yum -y install https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm
 RUN yum -y install cvmfs cvmfs-config-default
-
-# Extra packages required by ATLAS jobs
-RUN yum -y install file
 
 # Set ATLAS repositories and OpenHTC stratum 1 servers
 COPY default.local /etc/cvmfs/default.local
