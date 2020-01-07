@@ -117,7 +117,11 @@ fi
 cp shared/* .
 
 # Create a copy of the job description
-tar -O --strip-components=5 -xzf input.tar.gz */pandaJobData.out > pandaJob.out
+tar -O --strip-components=5 -xzf input.tar.gz --wildcards '*/pandaJobData.out' > pandaJob.out
+if [ ! -s pandaJob.out ]; then
+  echo "Failed to extract job description from input tarball"
+  cleanexit 1
+fi
 
 # Set threads for ATLAS job to use
 if [ $threads -ne 1 ]; then
