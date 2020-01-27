@@ -70,13 +70,9 @@ fi
 echo "CVMFS is ok"
 
 # Check if singularity is required
+# Plain CentOS7 doesn't work (SIGBUS errors) without certain packages installed
+# so always use singularity
 sin_required=yes
-if [ -e /etc/redhat-release ] && grep -iE "[CentOS|Red Hat].* 7" /etc/redhat-release >/dev/null; then
-  echo "Singularity not required"
-  sin_required=no
-else
-  echo "System is not Red Hat/CentOS 7, singularity is required"
-fi
 
 if [ "$sin_required" = "yes" ]; then
   # Check singularity executable
