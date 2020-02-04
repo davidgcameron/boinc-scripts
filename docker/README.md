@@ -26,11 +26,11 @@ The BOINC authenticator must be given as the first argument to the docker run co
 
 If CVMFS already exists on the host:
 
-`docker run -v /cvmfs:/cvmfs:shared -v /var/cache/cvmfs:/var/cache/cvmfs:shared -d davidgcameron/boinc-atlas:1.0 <boinc_authenticator>`
+`docker run -v /cvmfs:/cvmfs:shared -v /var/cache/cvmfs:/var/cache/cvmfs:shared -d davidgcameron/boinc-atlas <boinc_authenticator>`
 
 If the host does not have CVMFS, the container must be run in privileged mode to allow mounting CVMFS:
 
-`docker run --privileged -d davidgcameron/boinc-atlas:1.0 <boinc_authenticator>`
+`docker run --privileged -d davidgcameron/boinc-atlas <boinc_authenticator>`
 
 Debugging
 ---------
