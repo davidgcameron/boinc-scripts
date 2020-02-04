@@ -15,7 +15,7 @@ fi
 cvmfs_config probe || exit 1
 
 # Attach to project with the supplied authenticator
-exec /cvmfs/atlas.cern.ch/repo/sw/BOINC/BOINC/boinc --abort_jobs_on_exit --attach_project https://lhcathomedev.cern.ch/lhcathome-dev/ "$1"
+exec /cvmfs/atlas.cern.ch/repo/sw/BOINC/BOINC/boinc --abort_jobs_on_exit --attach_project https://lhcathome.cern.ch/lhcathome/ "$1"
 
 
 
