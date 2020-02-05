@@ -35,7 +35,7 @@ If the host does not have CVMFS, the container must be run in privileged mode to
 Debugging
 ---------
 
-BOINC client logs to stdout so can be seen with `docker log <container_id>`
+BOINC client logs to stdout so can be seen with `docker logs <container_id>`
 
 To debug running tasks, open a shell inside the container with `docker exec -it <container_id> /bin/bash`
 
