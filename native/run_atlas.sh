@@ -16,8 +16,8 @@
 
 # Bootscript script for running native ATLAS@Home tasks
 
-# Prefix stdout and stderr with timestamp
-exec &> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }')
+# Prefix stdout and stderr with timestamp; redirect all otutput to stderr
+exec &> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }' 1>&2)
 
 cleanexit() {
   exitcode=$1
