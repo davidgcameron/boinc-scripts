@@ -17,7 +17,8 @@
 # Bootscript script for running native ATLAS@Home tasks
 
 # Prefix stdout and stderr with timestamp; redirect all otutput to stderr
-exec &> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }' 1>&2)
+# flush awk's buffers after each printed line
+exec &> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0; fflush(); }' 1>&2)
 
 cleanexit() {
   exitcode=$1
@@ -167,5 +168,8 @@ fi
 
 echo " *** Contents of shared directory: ***"
 ls -lrt shared/
+
+# spend a second to work against the race condition introduced by output redirection
+sleep 1
 
 exit 0
