@@ -69,9 +69,8 @@ then
   then 
     hproxy=http://$proxy_server:$proxy_port
     export http_proxy=$hproxy
-    echo "set up http_proxy $http_proxy"|vboxmonitor
     if [ "${proxy_port}" -eq "3128" ]; then
-      echo "Detected squid proxy ${hproxy} - will set in /etc/cvmfs/default.local"|vboxmonitor
+      echo "Detected user-configured squid proxy - will set in /etc/cvmfs/default.local"|vboxmonitor
       sudo sh -c "echo \"CVMFS_HTTP_PROXY='${hproxy};DIRECT'\" > /etc/cvmfs/default.local"
       sudo sh -c "echo \"CVMFS_REPOSITORIES='atlas.cern.ch,atlas-condb.cern.ch,grid.cern.ch'\" >> /etc/cvmfs/default.local"
       sudo cvmfs_config reload
