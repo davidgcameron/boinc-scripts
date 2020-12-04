@@ -76,7 +76,10 @@ then
       sudo cvmfs_config reload
     fi
   else
-    echo "This vm does not need to setup an http proxy"|vboxmonitor
+    echo "This VM did not configure a local http proxy via BOINC."|vboxmonitor
+    echo "Small home clusters do not require a local http proxy but it is suggested if"|vboxmonitor
+    echo "more than 10 cores throughout the same LAN segment are regularly running ATLAS like tasks."|vboxmonitor
+    echo "Further information can be found at the LHC@home message board."|vboxmonitor
   fi
 else
   echo "miss $init_data"|vboxmonitor
