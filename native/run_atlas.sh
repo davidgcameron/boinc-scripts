@@ -56,12 +56,29 @@ else
     echo "cvmfs_config probe failed, aborting the job"
     cleanexit 1
   fi
-  if ! cvmfs_config stat atlas.cern.ch; then
+   cvmfs_config_stat="$(cvmfs_config stat atlas.cern.ch)"
+   if [[ "$?" != "0" ]]; then
     echo "cvmfs_config stat atlas.cern.ch failed, aborting the job"
     cleanexit 1
   fi
 fi
 echo "CVMFS is ok"
+
+# check from cvmfs_config output whether openhtc is used and whether a local proxy is used.
+openhtc_is_used="$(grep -c '\.openhtc\.io' <<<"$cvmfs_config_stat")"
+local_proxy_not_used="$(grep -c 'DIRECT' <<<"$cvmfs_config_stat")"
+
+if [[ "$openhtc_is_used" == "0" ]] || [[ "$local_proxy_not_used" != "0" ]]; then
+    echo "Efficiency of ATLAS tasks can be improved by the following measure(s):"
+    if [[ "$openhtc_is_used" == "0" ]]; then
+        echo "The CVMFS client on this computer should be configured to use Cloudflare's openhtc.io."
+    fi
+    if [[ "$local_proxy_not_used" != "0" ]]; then
+        echo "Small home clusters do not require a local http proxy but it is suggested if"
+        echo "more than 10 cores throughout the same LAN segment are regularly running ATLAS like tasks."
+    fi
+    echo "Further information can be found at the LHC@home message board."
+fi
 
 # Check if singularity is required
 # Plain CentOS7 doesn't work (SIGBUS errors) without certain packages installed
