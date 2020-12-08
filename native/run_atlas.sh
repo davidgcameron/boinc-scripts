@@ -62,6 +62,7 @@ else
     cleanexit 1
   fi
 fi
+echo "$cvmfs_config_stat"
 echo "CVMFS is ok"
 
 # check from cvmfs_config output whether openhtc is used and whether a local proxy is used.
