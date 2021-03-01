@@ -69,18 +69,16 @@ then
   then 
     hproxy=http://$proxy_server:$proxy_port
     export http_proxy=$hproxy
-    if [ "${proxy_port}" -eq "3128" ]; then
-      echo "Detected user-configured squid proxy at ${hproxy} - will set in /etc/cvmfs/default.local"|vboxmonitor
-      sudo sh -c "echo \"CVMFS_HTTP_PROXY='${hproxy};DIRECT'\" > /etc/cvmfs/default.local"
-      sudo sh -c "echo \"CVMFS_REPOSITORIES='atlas.cern.ch,atlas-condb.cern.ch,grid.cern.ch'\" >> /etc/cvmfs/default.local"
-      sudo cvmfs_config reload
-    fi
+    echo "Detected user-configured HTTP proxy at ${hproxy} - will set in /etc/cvmfs/default.local"|vboxmonitor
+    sudo sh -c "echo \"CVMFS_HTTP_PROXY='${hproxy};DIRECT'\" > /etc/cvmfs/default.local"
+    sudo cvmfs_config reload
   else
     echo "This VM did not configure a local http proxy via BOINC."|vboxmonitor
     echo "Small home clusters do not require a local http proxy but it is suggested if"|vboxmonitor
     echo "more than 10 cores throughout the same LAN segment are regularly running ATLAS like tasks."|vboxmonitor
     echo "Further information can be found at the LHC@home message board."|vboxmonitor
   fi
+  echo "$(sudo cvmfs_config stat atlas.cern.ch)"|vboxmonitor
 else
   echo "miss $init_data"|vboxmonitor
 fi
