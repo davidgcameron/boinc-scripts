@@ -78,7 +78,8 @@ then
     echo "more than 10 cores throughout the same LAN segment are regularly running ATLAS like tasks."|vboxmonitor
     echo "Further information can be found at the LHC@home message board."|vboxmonitor
   fi
-  echo "$(sudo cvmfs_config stat atlas.cern.ch)"|vboxmonitor
+  echo "Running cvmfs_config stat atlas.cern.ch"|vboxmonitor
+  cvmfs_config stat atlas.cern.ch|vboxmonitor
 else
   echo "miss $init_data"|vboxmonitor
 fi
