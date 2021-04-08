@@ -49,20 +49,24 @@ if ! which cvmfs_config &>/dev/null; then
   echo "No cvmfs_config command found, will try listing directly"
   if ! timeout 60 ls -d /cvmfs/atlas.cern.ch/repo/sw > /dev/null; then
     echo "Failed to list /cvmfs/atlas.cern.ch/repo/sw"
+    echo "** It looks like CVMFS is not installed on this host."
+    echo "** CVMFS is required to run ATLAS native tasks and can be installed following https://cvmfs.readthedocs.io/en/stable/cpt-quickstart.html"
+    echo "** and setting 'CVMFS_REPOSITORIES=atlas.cern.ch,atlas-condb.cern.ch' in /etc/cvmfs/default.local"
     cleanexit 1
   fi
 else
-  if ! cvmfs_config probe; then
-    echo "cvmfs_config probe failed, aborting the job"
+  if ! cvmfs_config probe atlas.cern.ch atlas-condb.cern.ch; then
+    echo "cvmfs_config probe atlas.cern.ch atlas-condb.cern.ch failed, aborting the job"
     cleanexit 1
   fi
-   cvmfs_config_stat="$(cvmfs_config stat atlas.cern.ch)"
-   if [[ "$?" != "0" ]]; then
+  echo "Running cvmfs_config stat atlas.cern.ch"
+  cvmfs_config_stat="$(cvmfs_config stat atlas.cern.ch)"
+  echo "$cvmfs_config_stat"
+  if [[ "$?" != "0" ]]; then
     echo "cvmfs_config stat atlas.cern.ch failed, aborting the job"
     cleanexit 1
   fi
 fi
-echo "$cvmfs_config_stat"
 echo "CVMFS is ok"
 
 # check from cvmfs_config output whether openhtc is used and whether a local proxy is used.
