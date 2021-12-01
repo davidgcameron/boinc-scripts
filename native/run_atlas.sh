@@ -92,7 +92,7 @@ sin_required=yes
 
 if [ "$sin_required" = "yes" ]; then
   # Check singularity executable
-  sin_image="/cvmfs/atlas.cern.ch/repo/containers/images/singularity/x86_64-centos7.img"
+  sin_image="/cvmfs/atlas.cern.ch/repo/containers/fs/singularity/x86_64-centos7"
   echo "Using singularity image $sin_image"
 
   sin_binary="/cvmfs/atlas.cern.ch/repo/containers/sw/singularity/x86_64-el7/current/bin/singularity"
