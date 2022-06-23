@@ -17,6 +17,21 @@
 # Bootscript script for running ATLAS@Home tasks inside a virtual machine
 
 #############################################
+# set the VM's I/O scheduler to the most simple one
+# this avoids I/O requests being resorted twice (guest/host)
+
+io_scheduler_location="/sys/block/sda/queue/scheduler"
+# newer kernels
+if grep 'none' ${io_scheduler_location} >/dev/null 2>&1; then
+    sudo sh -c "echo 'none' >${io_scheduler_location}"
+else
+    # older kernels
+    if grep 'noop' ${io_scheduler_location} >/dev/null 2>&1; then
+        sudo sh -c "echo 'none' >${io_scheduler_location}"
+    fi
+fi
+
+#############################################
 # Copy input files from shared dir to run dir
 
 echo "Mounting shared directory" | vboxmonitor
