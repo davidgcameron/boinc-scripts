@@ -27,7 +27,7 @@ if grep 'none' ${io_scheduler_location} >/dev/null 2>&1; then
 else
     # older kernels
     if grep 'noop' ${io_scheduler_location} >/dev/null 2>&1; then
-        sudo sh -c "echo 'none' >${io_scheduler_location}"
+        sudo sh -c "echo 'noop' >${io_scheduler_location}"
     fi
 fi
 
