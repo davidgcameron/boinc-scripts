@@ -1,7 +1,7 @@
 [Unit]
 Description=ATLAS job
-Requires=autofs.target
-After=network.target autofs.target
+Requires=autofs.service
+After=network.target autofs.service
 
 [Service]
 User=atlas
