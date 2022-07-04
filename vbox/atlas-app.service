@@ -1,0 +1,13 @@
+[Unit]
+Description=ATLAS job
+Requires=autofs.service
+After=network.target autofs.service
+
+[Service]
+User=atlas
+Type=forking
+ExecStart=/home/atlas/ATLASbootstrap.sh
+PIDFile=/home/atlas/ATLASJobAgent.pid
+
+[Install]
+WantedBy=multi-user.target
