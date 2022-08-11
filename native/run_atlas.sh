@@ -85,44 +85,64 @@ if [[ "$openhtc_is_used" == "0" ]] || [[ "$local_proxy_not_used" != "0" ]]; then
     echo "Further information can be found at the LHC@home message board."
 fi
 
-# Check if singularity is required
+# Check if apptainer is required
 # Plain CentOS7 doesn't work (SIGBUS errors) without certain packages installed
-# so always use singularity
-sin_required=yes
+# so always use apptainer
+appt_required=yes
 
-if [ "$sin_required" = "yes" ]; then
-  # Check singularity executable
-  sin_image="/cvmfs/atlas.cern.ch/repo/containers/fs/singularity/x86_64-centos7"
-  echo "Using singularity image $sin_image"
+if [ "$appt_required" = "yes" ]; then
+  # Check apptainer executable
+  appt_image="/cvmfs/atlas.cern.ch/repo/containers/fs/singularity/x86_64-centos7"
+  echo "Using apptainer image $appt_image"
 
-  sin_binary="/cvmfs/atlas.cern.ch/repo/containers/sw/singularity/x86_64-el7/current/bin/singularity"
-  echo "Checking for singularity binary..."
-  if sin_location=$(which singularity); then
-    echo "Using singularity found in PATH at ${sin_location}"
-    echo "Running ${sin_location} --version"
-    if ! ${sin_location} --version; then
-      echo "Singularity seems to be installed but not working"
+  appt_binary="/cvmfs/atlas.cern.ch/repo/containers/sw/apptainer/x86_64-el7/current/bin/apptainer"
+  echo "Checking for apptainer binary..."
+  if appt_location=$(which apptainer); then
+    echo "Using apptainer found in PATH at ${appt_location}"
+    echo "Running ${appt_location} --version"
+    if ! ${appt_location} --version; then
+      echo "apptainer seems to be installed but not working"
       echo "Will use version from CVMFS"
     else
-      sin_binary=${sin_location}
+      appt_binary=${appt_location}
     fi
   else
-    echo "Singularity is not installed, using version from CVMFS"
+    echo "apptainer is not installed, using version from CVMFS"
   fi
 
-  # Check singularity works
-  echo "Checking singularity works with ${sin_binary} exec -B /cvmfs ${sin_image} hostname"
-  if ! output=$(${sin_binary} exec -B /cvmfs ${sin_image} hostname 2>&1); then
-    if [[ "${sin_binary}" == "/cvmfs/"* ]] && [ $(echo "$output" | grep -c "Failed to create user namespace") = "1" ]; then
-      echo 'It looks like user namespaces are not enabled, which are required when running singularity from CVMFS.'
-      echo 'Please run the following command as root to enable them:'
-      echo ' echo "user.max_user_namespaces = 15000" > /etc/sysctl.d/90-max_user_namespaces.conf; sysctl -p /etc/sysctl.d/90-max_user_namespaces.conf'
+  # Check apptainer works
+  echo "Checking apptainer works with ${appt_binary} exec -B /cvmfs ${appt_image} hostname"
+  if output=$(${appt_binary} exec -B /cvmfs ${appt_image} hostname 2>&1); then
+    echo ${output}
+    echo "apptainer works"
+  else
+    echo "apptainer isnt working: ${output}"
+    if [[ "${appt_binary}" == "/cvmfs/"* ]]; then
+      if [ $(echo "$output" | grep -c "Failed to create user namespace") = "1" ]; then
+        echo 'It looks like user namespaces are not enabled, which are required when running apptainer from CVMFS.'
+        echo 'Please run the following command as root to enable them:'
+        echo ' echo "user.max_user_namespaces = 15000" > /etc/sysctl.d/90-max_user_namespaces.conf; sysctl -p /etc/sysctl.d/90-max_user_namespaces.conf'
+        cleanexit 1
+      fi
+      # Fallback to singularity if no local apptainer and cvmfs version doesn't work
+      if sin_location=$(which singularity); then
+        echo "Falling back to singularity found in PATH at ${sin_location}"
+        echo "WARNING: singularity support will be removed in a future version of native ATLAS"
+        echo "Please install apptainer instead following the instructions at https://apptainer.org/docs/admin/main/installation.html"
+        echo "Checking singularity works with ${sin_location} exec -B /cvmfs ${appt_image} hostname"
+        if ! output=$(${sin_location} exec -B /cvmfs ${appt_image} hostname 2>&1); then
+          echo "singularity isnt working either: ${output}"
+          cleanexit 1
+        fi
+        echo "singularity works"
+        appt_binary=${sin_location}
+      else
+        cleanexit 1
+      fi
+    else
+      cleanexit 1
     fi
-    echo "Singularity isnt working: ${output}"
-    cleanexit 1
   fi
-  echo ${output}
-  echo "Singularity works"
 fi
 
 # Copy input files from shared
@@ -145,12 +165,12 @@ fi
 pandaid=$(zgrep -ao PandaID=.......... input.tar.gz)
 echo "Starting ATLAS job with ${pandaid}"
 
-sin_cmd=""
-if [ "$sin_required" = "yes" ]; then
+appt_cmd=""
+if [ "$appt_required" = "yes" ]; then
   cwdroot=/$(pwd | cut -d/ -f2)
-  sin_cmd="${sin_binary} exec --pwd $PWD -B /cvmfs,${cwdroot} ${sin_image} "
+  appt_cmd="${appt_binary} exec --pwd $PWD -B /cvmfs,${cwdroot} ${appt_image} "
 fi
-cmd="${sin_cmd}sh start_atlas.sh"
+cmd="${appt_cmd}sh start_atlas.sh"
 echo "Running command: $cmd"
 $cmd > runtime_log 2> runtime_log.err
 
