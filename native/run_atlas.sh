@@ -126,7 +126,7 @@ if [ "$sin_required" = "yes" ]; then
 fi
 
 # Copy input files from shared
-cp shared/* .
+ln -f shared/* .
 
 # Create a copy of the job description
 tar -O --strip-components=5 -xzf input.tar.gz --wildcards '*/pandaJobData.out' > pandaJob.out
@@ -195,3 +195,4 @@ ls -lrt shared/
 sleep 1
 
 exit 0
+
