@@ -167,8 +167,7 @@ echo "Starting ATLAS job with ${pandaid}"
 
 appt_cmd=""
 if [ "$appt_required" = "yes" ]; then
-  cwdroot=/$(pwd | cut -d/ -f2)
-  appt_cmd="${appt_binary} exec --pwd $PWD -B /cvmfs,${cwdroot} ${appt_image} "
+  appt_cmd="${appt_binary} exec -B /cvmfs,${PWD} ${appt_image} "
 fi
 cmd="${appt_cmd}sh start_atlas.sh"
 echo "Running command: $cmd"
