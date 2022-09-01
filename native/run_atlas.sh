@@ -91,6 +91,8 @@ fi
 appt_required=yes
 
 if [ "$appt_required" = "yes" ]; then
+  # Set TMPDIR to avoid problems mounting /tmp
+  export APPTAINERENV_TMPDIR=${PWD}/.apptainertmp
   # Check apptainer executable
   appt_image="/cvmfs/atlas.cern.ch/repo/containers/fs/singularity/x86_64-centos7"
   echo "Using apptainer image $appt_image"
