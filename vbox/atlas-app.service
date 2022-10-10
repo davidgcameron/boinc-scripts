@@ -1,7 +1,8 @@
 [Unit]
 Description=ATLAS job
 Requires=autofs.service vboxguest.service
-After=network.target autofs.service vboxguest.service
+Wants=httpd.service
+After=network.target autofs.service vboxguest.service httpd.service
 
 [Service]
 User=atlas
