@@ -50,6 +50,39 @@ find /home/atlas/RunAtlas -name "ATLAS.root_0" -exec mv {} /data/ \;
 find /data -type f -execdir ln -s /data/{} /home/atlas/RunAtlas/{} \;
 echo "Copied input files into RunAtlas." | vboxmonitor
 
+#############################################
+# add required repositories to the CVMFS configuration
+
+sudo sh -c "echo \"CVMFS_REPOSITORIES=atlas.cern.ch,atlas-condb.cern.ch\" >> /etc/cvmfs/default.local"
+
+#############################################
+# set up http proxy for hosts behind firewall
+
+init_data=/home/atlas/shared/init_data.xml
+if [ -f $init_data ];
+then
+  use_proxy=`grep use_http_proxy/ $init_data`
+  proxy_server=` grep http_server_name $init_data |awk -F '>' '{print $2}'|awk -F "<" '{print $1}'|sed -e "s# #_#g"`
+  proxy_port=` grep http_server_port $init_data |awk -F '>' '{print $2}'|awk -F "<" '{print $1}'|sed -e "s# #_#g"`
+  if [ ! -z "$use_proxy" -a ! -z "$proxy_server" -a ! -z "$proxy_port" ];
+  then 
+    hproxy=http://$proxy_server:$proxy_port
+    export http_proxy=$hproxy
+    echo "Detected user-configured HTTP proxy at ${hproxy} - will set in /etc/cvmfs/default.local"|vboxmonitor
+    sudo sh -c "echo \"CVMFS_HTTP_PROXY=\\\"${hproxy};DIRECT\\\"\" >> /etc/cvmfs/default.local"
+  else
+    echo "This VM did not configure a local http proxy via BOINC."|vboxmonitor
+    echo "Small home clusters do not require a local http proxy but it is suggested if"|vboxmonitor
+    echo "more than 10 cores throughout the same LAN segment are regularly running ATLAS like tasks."|vboxmonitor
+    echo "Further information can be found at the LHC@home message board."|vboxmonitor
+  fi
+  sudo cvmfs_config reload
+  echo "Running cvmfs_config stat atlas.cern.ch"|vboxmonitor
+  cvmfs_config stat atlas.cern.ch|vboxmonitor
+else
+  echo "miss $init_data"|vboxmonitor
+fi
+
 ################################################
 # Copy data into web area for graphics interface
 
@@ -70,34 +103,6 @@ echo "copied the webapp to /var/www"|vboxmonitor
 # Cron to generate info for graphics interface
 
 sudo sh -c 'echo "* * * * * root cd /var/www/html; python extract_info.py" > /etc/cron.d/atlas-top'
-
-#############################################
-# set up http proxy for hosts behind firewall
-
-init_data=/home/atlas/shared/init_data.xml
-if [ -f $init_data ];
-then
-  use_proxy=`grep use_http_proxy/ $init_data`
-  proxy_server=` grep http_server_name $init_data |awk -F '>' '{print $2}'|awk -F "<" '{print $1}'|sed -e "s# #_#g"`
-  proxy_port=` grep http_server_port $init_data |awk -F '>' '{print $2}'|awk -F "<" '{print $1}'|sed -e "s# #_#g"`
-  if [ ! -z "$use_proxy" -a ! -z "$proxy_server" -a ! -z "$proxy_port" ];
-  then 
-    hproxy=http://$proxy_server:$proxy_port
-    export http_proxy=$hproxy
-    echo "Detected user-configured HTTP proxy at ${hproxy} - will set in /etc/cvmfs/default.local"|vboxmonitor
-    sudo sh -c "echo \"CVMFS_HTTP_PROXY='${hproxy};DIRECT'\" > /etc/cvmfs/default.local"
-    sudo cvmfs_config reload
-  else
-    echo "This VM did not configure a local http proxy via BOINC."|vboxmonitor
-    echo "Small home clusters do not require a local http proxy but it is suggested if"|vboxmonitor
-    echo "more than 10 cores throughout the same LAN segment are regularly running ATLAS like tasks."|vboxmonitor
-    echo "Further information can be found at the LHC@home message board."|vboxmonitor
-  fi
-  echo "Running cvmfs_config stat atlas.cern.ch"|vboxmonitor
-  cvmfs_config stat atlas.cern.ch|vboxmonitor
-else
-  echo "miss $init_data"|vboxmonitor
-fi
 
 #############################################
 # set up env for running Mcore job

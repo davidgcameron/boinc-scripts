@@ -1,0 +1,12 @@
+CVMFS_REPOSITORIES=atlas.cern.ch
+CVMFS_HTTP_PROXY="auto;DIRECT"
+CVMFS_KCACHE_TIMEOUT=30
+CVMFS_MAX_RETRIES=3
+CVMFS_MOUNT_RW=yes
+CVMFS_USE_CDN=yes
+
+if [ "$(($$ % 2))" -eq 1 ]; then
+  CVMFS_PAC_URLS="http://localhost/wpad.dat;http://grid-wpad/wpad.dat;http://lhchomeproxy.cern.ch/wpad.dat;http://lhchomeproxy.fnal.gov/wpad.dat"
+else
+  CVMFS_PAC_URLS="http://localhost/wpad.dat;http://grid-wpad/wpad.dat;http://lhchomeproxy.fnal.gov/wpad.dat;http://lhchomeproxy.cern.ch/wpad.dat"
+fi

@@ -1,13 +1,18 @@
 [Unit]
 Description=ATLAS job
-Requires=autofs.service
-After=network.target autofs.service
+Requires=autofs.service httpd.service vboxadd-service.service
+After=network-online.target autofs.service httpd.service vboxadd-service.service
 
 [Service]
 User=atlas
 Type=forking
 ExecStart=/home/atlas/ATLASbootstrap.sh
 PIDFile=/home/atlas/ATLASJobAgent.pid
+
+CPUSchedulingPolicy=batch
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+
 
 [Install]
 WantedBy=multi-user.target
