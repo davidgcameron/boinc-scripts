@@ -34,9 +34,6 @@ fi
 #############################################
 # Copy input files from shared dir to run dir
 
-echo "Mounting shared directory" | vboxmonitor
-sudo mount -t vboxsf shared /home/atlas/shared
-
 echo "Copying input files" | vboxmonitor
 rm -rf /home/atlas/RunAtlas
 mkdir -p /home/atlas/RunAtlas
