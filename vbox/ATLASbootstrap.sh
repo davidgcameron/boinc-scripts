@@ -23,7 +23,7 @@ fi
 
 echo "Checking for init_data.xml..." | vboxmonitor
 init_data="/home/atlas/shared/init_data.xml"
-if [ -f $init_data ]; then
+if [ ! -f $init_data ]; then
     echo "init_data.xml can't be found" | vboxmonitor
     early_exit
 fi
@@ -41,7 +41,7 @@ fi
 echo "CVMFS is ok" | vboxmonitor
 
 
-if grep '<project_dir>[^<]*/lhcathomedev.cern.ch_lhcathome-dev<' init_data; then
+if grep '<project_dir>[^<]*/lhcathomedev.cern.ch_lhcathome-dev<' $init_data; then
     jobwrapper_name="ATLASJobWrapper-test.sh"
 else
     jobwrapper_name="ATLASJobWrapper-prod.sh"
