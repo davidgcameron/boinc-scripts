@@ -195,4 +195,3 @@ rm -f /home/atlas/ATLASJobAgent.pid
 if [ ! -f /home/atlas/noshutdown ]; then
     sudo shutdown now
 fi
-
