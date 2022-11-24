@@ -25,10 +25,11 @@ function early_exit {
 function probe_atlas_repo {
     cvmfs_config probe atlas.cern.ch >${my_tmp_dir}/probe_atlas_log 2>&1
     probe_atlas_ret=$?
-    echo "[INFO] $(cat ${my_tmp_dir}/probe_atlas_log)" | vboxmonitor
     if [ "$probe_atlas_ret" -ne "0" ]; then
+        echo "[DEBUG] $(cat ${my_tmp_dir}/probe_atlas_log)" | vboxmonitor
         early_exit
     fi
+    echo "[INFO] $(cat ${my_tmp_dir}/probe_atlas_log)" | vboxmonitor
 }
 
 
