@@ -68,16 +68,19 @@ wait $bg_probe_atlas_repo
 
 
 if grep '<project_dir>[^<]*/lhcathomedev.cern.ch_lhcathome-dev<' $init_data; then
-    jobwrapper_name="ATLASJobWrapper-dev.sh"
+    export ATLAS_BRANCH_SUFFIX="dev"
 else
-    jobwrapper_name="ATLASJobWrapper-prod.sh"
+    export ATLAS_BRANCH_SUFFIX="prod"
 fi
 
-cp /cvmfs/atlas.cern.ch/repo/sw/BOINC/agent/${jobwrapper_name} /home/atlas/ATLASJobWrapper.sh
+stdbuf -oL echo "[INFO] Detected branch: $ATLAS_BRANCH_SUFFIX" | vboxmonitor
+cp /cvmfs/atlas.cern.ch/repo/sw/BOINC/agent/ATLASJobWrapper-${ATLAS_BRANCH_SUFFIX}.sh /home/atlas/ATLASJobWrapper.sh
+
 if [ "$?" -ne "0" ]; then
-    stdbuf -oL echo "[DEBUG] Failed to copy ${jobwrapper_name}" | vboxmonitor
+    stdbuf -oL echo "[DEBUG] Failed to copy ATLASJobWrapper-${ATLAS_BRANCH_SUFFIX}.sh" | vboxmonitor
     early_exit
 fi
+
 chown atlas:atlas /home/atlas/ATLASJobWrapper.sh
 chmod +x /home/atlas/ATLASJobWrapper.sh
 
