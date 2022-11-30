@@ -31,6 +31,10 @@ else
     fi
 fi
 
+if [ ! -z "$ATLAS_BRANCH_SUFFIX" ]; then
+    echo "This is the ${ATLAS_BRANCH_SUFFIX} version of the ATLAS job wrapper" | vboxmonitor
+fi
+
 #############################################
 # Copy input files from shared dir to run dir
 
