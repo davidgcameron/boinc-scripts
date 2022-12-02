@@ -1,0 +1,12 @@
+  if [ -e ${RUNTIME_CONFIG_DIR}init_data.xml ] && grep "<use_http_proxy/>" ${RUNTIME_CONFIG_DIR}init_data.xml >/dev/null 2>&1; then
+    export ATLAS_LOCAL_AREA=${RUNTIME_CONFIG_DIR}
+    ## if a proxyconfigurl is set 'backupproxyurl' must be used instead of 'proxyurl' to ensure the right priority
+    ## see: http://frontier.cern.ch/dist/FrontierClientUsage.html
+    FRONTIER_SERVER_URLS="(serverurl=http://atlascern-frontier.openhtc.io:8080/atlr)(serverurl=http://atlasfrontier-ai.cern.ch:8000/atlr)(serverurl=http://ccfrontier.in2p3.fr:23128/ccin2p3-AtlasFrontier)"
+    FRONTIER_PROXYCONFIG_URLS="(proxyconfigurl=http://localhost/wpad.dat)"
+    FRONTIER_BACKUPPROXY_URLS=""
+    if [ -n $http_proxy ]; then
+        FRONTIER_BACKUPPROXY_URLS="(backupproxyurl=${http_proxy})"
+    fi
+    FRONTIER_BACKUPPROXY_URLS="${FRONTIER_BACKUPPROXY_URLS}(backupproxyurl=http://atlasbpfrontier.cern.ch:3127)(backupproxyurl=http://atlasbpfrontier.fnal.gov:3127)"
+    echo "export FRONTIER_SERVER=\"${FRONTIER_SERVER_URLS}${FRONTIER_PROXYCONFIG_URLS}${FRONTIER_BACKUPPROXY_URLS}\"" > ${ATLAS_LOCAL_AREA}setup.sh.local

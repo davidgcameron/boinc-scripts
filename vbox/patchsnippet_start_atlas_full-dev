@@ -1,0 +1,38 @@
+  if [ -e ${RUNTIME_CONFIG_DIR}init_data.xml ] && grep "<use_http_proxy/>" ${RUNTIME_CONFIG_DIR}init_data.xml >/dev/null 2>&1; then
+    ## so far this branch is experimental and shown as proof of concept
+    export ATLAS_LOCAL_AREA=${RUNTIME_CONFIG_DIR}
+    FRONTIER_PROXYCONFIG_URLS="(proxyconfigurl=http://localhost/wpad.dat)"
+    ## if a proxyconfigurl is set 'backupproxyurl' must be used instead of 'proxyurl' to ensure the right priority
+    ## see: http://frontier.cern.ch/dist/FrontierClientUsage.html
+    FRONTIER_BACKUPPROXY_URLS=""
+    if [ -n $http_proxy ]; then
+        FRONTIER_BACKUPPROXY_URLS="(backupproxyurl=${http_proxy})"
+    fi
+        
+    case "$(sed -n '/<host_info>/,/<\/host_info>/ s/^.*<domain_name>.*[.]\([^.]\+[.][^.]\+\)<\/domain_name>/\1/p' ${RUNTIME_CONFIG_DIR}init_data.xml)" in
+      cern.ch)
+        FRONTIER_SERVER_URLS="(serverurl=http://atlasfrontier-ai.cern.ch:8000/atlr)(serverurl=http://ccfrontier.in2p3.fr:23128/ccin2p3-AtlasFrontier)"
+        FRONTIER_BACKUPPROXY_URLS="$FRONTIER_BACKUPPROXY_URLS(backupproxyurl=http://ca-proxy-atlas.cern.ch:3128)(backupproxyurl=http://db-atlas-squid.ndgf.org:3128)(backupproxyurl=http://atlas-db-squid.grid.uio.no:3128)(backupproxyurl=http://dcache.ijs.si:3128)(backupproxyurl=http://atlasbpfrontier.cern.ch:3127)(backupproxyurl=http://atlasbpfrontier.fnal.gov:3127)"
+        ;;
+      *)
+        # main alias
+        # resolves to multiple IPs
+        FRONTIER_SERVER_URLS="(serverurl=http://atlascern-frontier.openhtc.io:8080/atlr)"
+        server_index_arr=(1 2 3 4) # openhtc.io fail-over list
+        if command -v shuf >/dev/null 2>&1; then
+            server_index_arr=($(shuf -e ${server_index_arr[*]}))
+        fi
+        # add fail-over servers, if possible in random order
+        for i in "${server_index_arr[@]}"; do
+            FRONTIER_SERVER_URLS="${FRONTIER_SERVER_URLS}(serverurl=http://atlascern${i}-frontier.openhtc.io:8080/atlr)"
+        done
+
+        if [ "$(($$ % 2))" -eq 1 ]; then
+            FRONTIER_BACKUPPROXY_URLS="${FRONTIER_BACKUPPROXY_URLS}(backupproxyurl=http://atlasbpfrontier.cern.ch:3127)(backupproxyurl=http://atlasbpfrontier.fnal.gov:3127)"
+        else
+            FRONTIER_BACKUPPROXY_URLS="${FRONTIER_BACKUPPROXY_URLS}(backupproxyurl=http://atlasbpfrontier.fnal.gov:3127)(backupproxyurl=http://atlasbpfrontier.cern.ch:3127)"
+        fi
+        ;;
+    esac
+
+    echo "export FRONTIER_SERVER=\"${FRONTIER_SERVER_URLS}${FRONTIER_PROXYCONFIG_URLS}${FRONTIER_BACKUPPROXY_URLS}\"" > ${ATLAS_LOCAL_AREA}setup.sh.local

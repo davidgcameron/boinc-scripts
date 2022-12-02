@@ -1,0 +1,267 @@
+#!/bin/bash
+
+# Using a wpad.dat to define the proxy settings allows proxy load balancing and automatic proxy fail-over.
+# If none of the sources provides a complex wpad.dat a simple generic one is written to be used by CVMFS and Frontier.
+# The wpad.dat is then copied to the VM's webserver directory.
+# This avoids multiple wpad requests to external sources.
+
+
+function bs_get_wpad_from_lhchomeproxy {
+    wlcg_wpad_services1=("lhchomeproxy.cern.ch" "lhchomeproxy.fnal.gov")
+    wlcg_wpad_services2=("lhchomeproxy.fnal.gov" "lhchomeproxy.cern.ch")
+
+    case "$(sed -n '/<host_info>/,/<\/host_info>/ s/^.*<domain_name>.*[.]\([^.]\+[.][^.]\+\)<\/domain_name>/\1/p' /home/atlas/shared/init_data.xml)" in
+      cern.ch)
+        wlcg_wpad_services=("${wlcg_wpad_services1[@]}")
+        ;;
+      fnal.gov)
+        wlcg_wpad_services=("${wlcg_wpad_services2[@]}")
+        ;;
+      *)
+        if (( $(( BASHPID % 2 )) != 0 )); then
+            wlcg_wpad_services=("${wlcg_wpad_services1[@]}")
+        else
+            wlcg_wpad_services=("${wlcg_wpad_services2[@]}")
+        fi
+        ;;
+    esac
+
+    for wpad_service in "${wlcg_wpad_services[@]}"; do
+        ipv4_address_list=($(uniq <<< "$(awk '{ print $1 }' <<< "$(getent ahostsv4 ${wpad_service} 2>/dev/null)")"))
+
+        for ipv4_address in "${ipv4_address_list[@]}"; do
+            if curl -f -L -m 10 -s -H "Host: ${wpad_service}" "http://${ipv4_address}/wpad.dat" -o "$bs_lhchome_wpad_tmp" && \
+                grep -Eim1 '^[[:blank:]]*function[[:blank:]]+FindProxyForURL' "$bs_lhchome_wpad_tmp" >/dev/null 2>&1; then
+                # test against the location string that is usually returned as part of the wpad.dat
+                if grep -Ei '//[[:blank:]]+no[[:blank:]]+(org|squid)[[:blank:]]+found[[:blank:]]+' <<< "$(head -n1 "$bs_lhchome_wpad_tmp")" >/dev/null 2>&1; then
+                    # non-WLCG sites will get DIRECT for openhtc.io and lhchomeproxy or 'NONE' for others
+                    # keep that for fallback
+                    echo "1" >"$bs_lhchome_return"
+                    return 1
+                else
+                    # WLCG sites will get proxies from here
+                    # this can even be DIRECT
+                    echo "0" >"$bs_lhchome_return"
+                    return 0
+                fi
+            fi
+        done
+
+    done
+
+    echo "2" >"$bs_lhchome_return"
+    return 2
+}
+
+
+function bs_get_wpad_from_grid_wpad {
+    ipv4_address_list=($(uniq <<< "$(awk '{ print $1 }' <<< "$(getent ahostsv4 grid-wpad 2>/dev/null)")"))
+
+    for ipv4_address in "${ipv4_address_list[@]}"; do
+        if curl -f -L -m 10 -s -H "Host: grid-wpad" "http://${ipv4_address}/wpad.dat" -o "$bs_grid_wpad_tmp" && \
+            grep -Eim1 '^[[:blank:]]*function[[:blank:]]+FindProxyForURL' "$bs_grid_wpad_tmp" >/dev/null 2>&1; then
+            echo "0" >"$bs_grid_return"
+            return 0
+        fi
+    done
+
+    echo "1" >"$bs_grid_return"
+    return 1
+}
+
+
+function bs_get_proxy_from_boinc {
+    init_data_proxy="$(sed -n -e '/<proxy_info>/,/<\/proxy_info>/ p; /<\/proxy_info>/ q' /home/atlas/shared/init_data.xml)"
+
+    # check, if BOINC has it's proxy enabled
+    if grep -m1 '<use_http_proxy\/>' <<< "${init_data_proxy}" >/dev/null 2>&1; then
+        proxy_host="$(sed -ne '/<http_server_name>/ {s/^.*<http_server_name>\([^<]\+\).*/\1/p;q}' <<< "${init_data_proxy}")"
+        proxy_host="${proxy_host#"http://"}"    # remove the protocol prefix if it exists.
+        proxy_port="$(sed -ne '/<http_server_port>/ {s/^.*<http_server_port>\([^<]\+\).*/\1/p;q}' <<< "${init_data_proxy}")"
+
+        if [[ -n "$proxy_host" ]] && [[ -n "$proxy_port" ]]; then
+
+# Do not indent the heredoc EOF!
+cat << EOF_BS_LOCAL_WPAD_FILE_with_proxy >"$bs_boinc_wpad_tmp"
+function FindProxyForURL(url, host) {
+    return "PROXY http://${proxy_host}:${proxy_port}";
+}
+EOF_BS_LOCAL_WPAD_FILE_with_proxy
+
+            return 0
+        fi
+    fi
+
+    return 2
+}
+
+
+function bs_set_simple_proxy {
+    # At this point we have a valid wpad.dat in
+    # $bs_local_wpad_dat that can be used.
+    # Simple commands like wget or curl don't understand
+    # wpad and need a single proxy set via the environment.
+
+    if [[ "$http_proxy" != "" ]]; then
+        export http_proxy="$http_proxy"
+            
+        # all done
+        return 0
+    fi
+
+    unset proxy_new
+
+    if [[ -x /usr/bin/pactester ]]; then
+        # pactester never makes an internet request
+        # http://example.com is used to get the fallback proxy from a wpad.dat
+        # the output looks like this
+        # PROXY http://ca-proxy-atlas.cern.ch:3128; PROXY http://cvmfsbproxy.cern.ch:3126; ...
+        # or like this
+        # PROXY http://ca-proxy.cern.ch:3128
+        # or like this
+        # DIRECT
+
+        my_pacstring="$(/usr/bin/pactester -p $bs_local_wpad_dat -u http://example.com 2>/dev/null)"
+        IFS='; ' read -r -a proxy_raw_arr <<< "$my_pacstring"
+
+        for proxy_raw in "${proxy_raw_arr[@]}"; do
+            proxy_new=$proxy_raw
+            if [[ "$proxy_new" != "PROXY" ]] && \
+               [[ "$proxy_new" != "DIRECT" ]] && \
+               [[ "$proxy_new" != "NONE" ]] && \
+               grep -iv 'lhchomeproxy\.' <<< "$proxy_new" >/dev/null 2>&1; then
+                # lhchomeproxy.{cern.ch|fnal.gov} must be excluded
+                export http_proxy="$proxy_new"
+
+                # all done
+                return 0
+            fi
+        done
+    fi
+
+    # Can't identify a proxy
+    export http_proxy=
+
+    return 0
+}
+
+
+function bgcopy_pactester {
+    repo_base="/cvmfs/atlas.cern.ch/repo/sw/software/21.0/sw/lcg/releases/pacparser/1.3.5-a65a3/x86_64-centos7-gcc62-opt"
+    sudo sh -c "cp ${repo_base}/lib/libpacparser.so.1 /usr/lib64/"
+    sudo sh -c "cp ${repo_base}/bin/pactester /usr/bin/"
+    sudo sh -c "chown root:root /usr/lib64/libpacparser.so.1 /usr/bin/pactester"
+    sudo sh -c "chmod 755 /usr/lib64/libpacparser.so.1 /usr/bin/pactester"
+    sudo sh -c "ln -s libpacparser.so.1 /usr/lib64/libpacparser.so"
+}
+
+
+function bs_create_local_wpad {
+    bs_local_wpad_dat="/var/www/html/wpad.dat"
+    sudo sh -c "rm -f \"$bs_local_wpad_dat\""
+
+    my_umask="$(umask)"
+    umask 077
+    my_tmp_dir="$(mktemp -d)"
+    umask "${my_umask}"
+
+    # array to control the bg jobs
+    bg_pids_wpad=()
+
+    # copy pactester utility in the bg
+    bgcopy_pactester &
+    bg_pids_wpad+=($!)
+
+    # Contact lhchomeproxy to allow monitoring
+    # no matter which proxy is used at the end.
+    bs_lhchome_wpad_tmp="${my_tmp_dir}/lhchome_wpad"
+    bs_lhchome_return="${my_tmp_dir}/lhchome_return"
+    bs_get_wpad_from_lhchomeproxy &
+    bg_pids_wpad+=($!)
+
+    # Try to get a wpad file from grid-wpad.
+    # This generic source needs to be set up by a site admin.
+    bs_grid_wpad_tmp="${my_tmp_dir}/grid_wpad"
+    bs_grid_return="${my_tmp_dir}/grid_return"
+    bs_get_wpad_from_grid_wpad &
+    bg_pids_wpad+=($!)
+
+    # Try to get a proxy from the BOINC client.
+    bs_boinc_wpad_tmp="${my_tmp_dir}/boinc_wpad"
+    bs_get_proxy_from_boinc
+    ret_boinc_proxy="$?"
+
+    for pid in ${bg_pids_wpad[*]}; do
+        wait $pid
+    done
+    
+
+    ret_lhchomeproxy=$(cat "$bs_lhchome_return")
+    ret_grid_wpad=$(cat "$bs_grid_return")
+
+    (( ret_lhchomeproxy == 2 )) && stdbuf -oL echo "[DEBUG] Could not download a wpad.dat from lhchomeproxy.{cern.ch|fnal.gov}" | vboxmonitor
+
+    # prefer proxies set by grid-wpad
+    if (( ret_grid_wpad == 0 )); then
+        sudo sh -c "cat \"$bs_grid_wpad_tmp\" >\"$bs_local_wpad_dat\""
+        stdbuf -oL echo "[INFO] Got a wpad.dat from grid-wpad" | vboxmonitor
+        stdbuf -oL echo "[INFO] Will use proxies from there for CVMFS and Frontier" | vboxmonitor
+        rm -frd "$my_tmp_dir"
+
+        bs_set_simple_proxy
+        return 0
+    fi
+
+    if (( ret_lhchomeproxy == 0 )); then
+        sudo sh -c "cat \"$bs_lhchome_wpad_tmp\" >\"$bs_local_wpad_dat\""
+        stdbuf -oL echo "[INFO] Got a wpad.dat from lhchomeproxy.{cern.ch|fnal.gov}" | vboxmonitor
+        stdbuf -oL echo "[INFO] Will use proxies from there for CVMFS and Frontier" | vboxmonitor
+        rm -frd "$my_tmp_dir"
+
+        bs_set_simple_proxy
+        return 0
+    fi
+
+    # If no proxy is present yet, check if BOINC has one set.
+    if (( ret_boinc_proxy == 0 )); then
+        sudo sh -c "cat \"$bs_boinc_wpad_tmp\" >\"$bs_local_wpad_dat\""
+        stdbuf -oL echo "[INFO] Got a proxy from the local BOINC client" | vboxmonitor
+        stdbuf -oL echo "[INFO] Will use it for CVMFS and Frontier" | vboxmonitor
+        rm -frd "$my_tmp_dir"
+
+        bs_set_simple_proxy
+        return 0
+    fi
+
+    # Use non-WLCG reply from lhchomeproxy or generic DIRECT if other methods fail
+    stdbuf -oL echo "[INFO] Could not find a local HTTP proxy" | vboxmonitor
+    stdbuf -oL echo "[INFO] CVMFS and Frontier will have to use DIRECT connections" | vboxmonitor
+    stdbuf -oL echo "[INFO] This makes the application less efficient" | vboxmonitor
+    stdbuf -oL echo "[INFO] It also puts higher load on the project servers" | vboxmonitor
+    stdbuf -oL echo "[INFO] Setting up a local HTTP proxy is highly recommended" | vboxmonitor
+    stdbuf -oL echo "[INFO] Advice can be found in the project forum" | vboxmonitor
+
+    if (( ret_lhchomeproxy == 1 )); then
+        sudo sh -c "cat \"$bs_lhchome_wpad_tmp\" >\"$bs_local_wpad_dat\""
+        rm -frd "$my_tmp_dir"
+
+        bs_set_simple_proxy
+        return 0
+    fi
+
+    rm -frd "$my_tmp_dir"
+
+# Do not indent the heredoc EOF!
+cat << EOF_BS_LOCAL_WPAD_FILE_with_DIRECT >"/home/atlas/generic_wpad"
+function FindProxyForURL(url, host) {
+    return "DIRECT";
+}
+EOF_BS_LOCAL_WPAD_FILE_with_DIRECT
+
+sudo sh -c "cat \"/home/atlas/generic_wpad\" >\"$bs_local_wpad_dat\""
+
+    # Can't identify or connect to a proxy
+    # run it to clear the environment proxy
+    bs_set_simple_proxy
+    return 0
+}
