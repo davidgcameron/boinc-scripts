@@ -1,7 +1,0 @@
-#!/bin/bash
-
-setterm -reset 2>/dev/null
-setterm -powersave off 2>/dev/null
-setterm -blank 0 2>/dev/null
-
-top

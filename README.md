@@ -1,2 +1,2 @@
-# boinc-scripts
-Scripts for controlling tasks on ATLAS@Home
+Moved to https://github.com/ATLASBOINC/boinc-scripts
+
